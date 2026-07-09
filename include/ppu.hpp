@@ -73,4 +73,7 @@ private:
     // Buffer temporário para salvar os índices de cor (0-3) do Fundo/Janela da linha atual
     // Usado para computar a prioridade BG-para-OBJ (se o pixel do BG é transparente ou opaco)
     uint8_t m_scanlineBGColorIndex[160];
+
+    // Estado da linha de sinal da interrupção STAT (usado para detecção de borda de subida)
+    bool m_statInterruptLine;
 };

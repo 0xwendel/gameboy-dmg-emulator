@@ -2,7 +2,7 @@
 #include <iostream>
 #include <algorithm>
 
-PPU::PPU() : m_scanlineTicks(0), m_ly(0), m_mode(ModeOAMSearch), m_frameReady(false) {
+PPU::PPU() : m_scanlineTicks(0), m_ly(0), m_mode(ModeOAMSearch), m_frameReady(false), m_statInterruptLine(false) {
     // Inicializa o buffer com a cor mais clara da paleta
     for (int i = 0; i < 160 * 144; ++i) {
         m_frameBuffer[i] = PALETTE[0];
@@ -104,7 +104,36 @@ void PPU::tick(uint8_t mCycles, MMU& mmu) {
     }
 
     // Sincroniza o modo atual da PPU com o registrador de status (STAT) na MMU
-    mmu.setLCDMode(static_cast<uint8_t>(m_mode));
+    // e processa a interrupção STAT (incluindo LYC == LY)
+    uint8_t stat = mmu.readByte(0xFF41);
+    uint8_t lyc = mmu.readByte(0xFF45);
+
+    bool ppuSignal = false;
+    
+    // Verifica as condições de ativação de sinal de interrupção do registrador STAT
+    if ((m_mode == ModeHBlank) && (stat & 0x08)) ppuSignal = true;     // Bit 3
+    if ((m_mode == ModeVBlank) && (stat & 0x10)) ppuSignal = true;     // Bit 4
+    if ((m_mode == ModeOAMSearch) && (stat & 0x20)) ppuSignal = true;  // Bit 5
+
+    // Coincidência LYC == LY
+    bool coincidence = (m_ly == lyc);
+    if (coincidence) {
+        stat |= 0x04; // Seta bit 2 (Coincidence flag)
+        if (stat & 0x40) ppuSignal = true; // Bit 6
+    } else {
+        stat &= ~0x04; // Limpa bit 2
+    }
+
+    // Atualiza bits de modo (bits 0-1)
+    stat = (stat & 0xFC) | (static_cast<uint8_t>(m_mode) & 0x03);
+    mmu.writeByte(0xFF41, stat);
+
+    // Dispara interrupção STAT (Bit 1 de IF) em borda de subida do sinal
+    if (ppuSignal && !m_statInterruptLine) {
+        uint8_t ifReg = mmu.readByte(0xFF0F);
+        mmu.writeByte(0xFF0F, ifReg | 0x02);
+    }
+    m_statInterruptLine = ppuSignal;
 }
 
 void PPU::renderScanline(MMU& mmu) {
@@ -211,13 +240,15 @@ void PPU::renderWindow(MMU& mmu) {
     uint8_t tileRow = winY / 8;
     uint8_t pixelRow = winY % 8;
 
+    int16_t windowXStart = static_cast<int16_t>(wx) - 7;
+
     for (int x = 0; x < 160; ++x) {
         // A janela só aparece à direita de WX - 7
-        if (x < (wx - 7)) {
+        if (x < windowXStart) {
             continue;
         }
 
-        uint8_t winX = x - (wx - 7);
+        uint8_t winX = x - windowXStart;
         uint8_t tileCol = winX / 8;
         uint8_t pixelCol = winX % 8;
 
