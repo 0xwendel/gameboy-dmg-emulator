@@ -2,7 +2,7 @@
 #include <cstring>
 #include <iostream>
 
-MMU::MMU() : m_ie(0), m_bootRomActive(true), m_ramEnabled(false), m_romBankLower(1), m_romBankUpper(0), m_bankingMode(0), m_divCounter(0) {
+MMU::MMU() : m_ie(0), m_bootRomActive(true), m_ramEnabled(false), m_romBankLower(1), m_romBankUpper(0), m_bankingMode(0), m_divCounter(0), m_joypadSelect(0x30), m_joypadDirections(0x0F), m_joypadActions(0x0F) {
     // Inicializa a memória interna com zero
     std::memset(m_vram, 0, sizeof(m_vram));
     std::memset(m_wram, 0, sizeof(m_wram));
@@ -131,6 +131,18 @@ uint8_t MMU::readByte(uint16_t address) const {
     
     // 8. I/O Registers
     if (address >= 0xFF00 && address <= 0xFF7F) {
+        if (address == 0xFF00) {
+            uint8_t res = 0xC0 | m_joypadSelect;
+            uint8_t buttons = 0x0F;
+            if (!(m_joypadSelect & 0x10)) { // Directions selected (Bit 4 = 0)
+                buttons &= m_joypadDirections;
+            }
+            if (!(m_joypadSelect & 0x20)) { // Actions selected (Bit 5 = 0)
+                buttons &= m_joypadActions;
+            }
+            res |= (buttons & 0x0F);
+            return res;
+        }
         return m_io[address - 0xFF00];
     }
     
@@ -216,6 +228,10 @@ void MMU::writeByte(uint16_t address, uint8_t value) {
     
     // 8. I/O Registers
     if (address >= 0xFF00 && address <= 0xFF7F) {
+        if (address == 0xFF00) {
+            m_joypadSelect = value & 0x30; // Apenas bits 4 e 5 são graváveis
+            return;
+        }
         if (address == 0xFF04) {
             m_divCounter = 0;
             m_io[0x04] = 0;
@@ -239,5 +255,34 @@ void MMU::writeByte(uint16_t address, uint8_t value) {
     if (address == 0xFFFF) {
         m_ie = value;
         return;
+    }
+}
+
+void MMU::setJoypadState(uint8_t directionState, uint8_t actionState) {
+    bool interrupt = false;
+    uint8_t prevDirections = m_joypadDirections;
+    uint8_t prevActions = m_joypadActions;
+
+    m_joypadDirections = directionState & 0x0F;
+    m_joypadActions = actionState & 0x0F;
+
+    // Detecção de transição de botão solto (1) para pressionado (0)
+    // Se a linha de direção estiver selecionada (Bit 4 = 0)
+    if (!(m_joypadSelect & 0x10)) {
+        if ((prevDirections & ~m_joypadDirections) & 0x0F) {
+            interrupt = true;
+        }
+    }
+
+    // Se a linha de ação estiver selecionada (Bit 5 = 0)
+    if (!(m_joypadSelect & 0x20)) {
+        if ((prevActions & ~m_joypadActions) & 0x0F) {
+            interrupt = true;
+        }
+    }
+
+    if (interrupt) {
+        // Dispara a interrupção de Joypad (Bit 4 de IF em 0xFF0F)
+        m_io[0x0F] |= 0x10;
     }
 }

@@ -19,6 +19,9 @@ public:
     // Método para atualizar o registrador divisor DIV
     void tickDIV(uint8_t dots);
 
+    // Método para atualizar o estado físico do Joypad (a partir do teclado do emulador)
+    void setJoypadState(uint8_t directionState, uint8_t actionState);
+
     // Carrega a ROM do jogo para memória
     bool loadROM(const std::vector<uint8_t>& romData);
 
@@ -47,4 +50,9 @@ private:
     uint8_t m_romBankLower;   // Bits 0-4 do banco de ROM (escrito em 0x2000-0x3FFF)
     uint8_t m_romBankUpper;   // Bits 5-6 do banco de ROM / Banco de RAM (escrito em 0x4000-0x5FFF)
     uint8_t m_bankingMode;    // Modo de mapeamento: 0 = ROM (padrão), 1 = RAM (escrito em 0x6000-0x7FFF)
+
+    // --- Estado do Controle Joypad ---
+    uint8_t m_joypadSelect;     // Bits 4 e 5 escritos pela CPU em 0xFF00 (0x30 por padrão)
+    uint8_t m_joypadDirections; // Estado ativo em nível baixo (low) dos direcionais (0xF = solto)
+    uint8_t m_joypadActions;    // Estado ativo em nível baixo (low) das ações (0xF = solto)
 };
