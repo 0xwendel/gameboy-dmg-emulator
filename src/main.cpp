@@ -77,8 +77,8 @@ int main() {
     mmu.writeByte(0xFF50, 1);
     
     // Configura os registradores da PPU na MMU
-    // LCDC (0xFF40) = 0x81 (LCD ligado, Background ligado, Tile Data em 0x8000 unsigned)
-    mmu.writeByte(0xFF40, 0x81);
+    // LCDC (0xFF40) = 0x91 (LCD ligado, Background ligado, Tile Data em 0x8000 unsigned)
+    mmu.writeByte(0xFF40, 0x91);
     // BGP (0xFF47) = 0xE4 (Paleta padrão: 11 10 01 00)
     mmu.writeByte(0xFF47, 0xE4);
     
