@@ -54,4 +54,9 @@ private:
 
     // Gera um padrão visual estático para testar o loop de renderização do Raylib
     void generateTestPattern();
+
+    // Métodos internos de renderização de scanlines
+    void renderScanline(MMU& mmu);
+    void renderBG(MMU& mmu);
+    void renderWindow(MMU& mmu);
 };
