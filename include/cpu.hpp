@@ -58,7 +58,12 @@ public:
 
 private:
     Registers m_regs;
-    bool m_ime; // Interrupt Master Enable flag
+    bool m_ime;    // Interrupt Master Enable flag
+    bool m_halted; // Flag indicando se a CPU está parada por HALT
+
+    // Trata e realiza o desvio para interrupções pendentes
+    void handleInterrupts(MMU& mmu);
+    void serviceInterrupt(uint8_t interruptBit, uint16_t vectorAddress, MMU& mmu);
 
     // Métodos utilitários de barramento para fetch de instruções
     uint8_t fetchByte(MMU& mmu);

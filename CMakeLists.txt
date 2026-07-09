@@ -20,6 +20,7 @@ add_executable(gb_emulator
   src/mmu.cpp
   src/cpu.cpp
   src/ppu.cpp
+  src/timer.cpp
 )
 
 target_include_directories(gb_emulator PRIVATE

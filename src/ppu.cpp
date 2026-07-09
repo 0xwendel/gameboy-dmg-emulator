@@ -70,6 +70,11 @@ void PPU::tick(uint8_t mCycles, MMU& mmu) {
                 // Entra no modo V-Blank
                 m_mode = ModeVBlank;
                 m_frameReady = true;
+
+                // Solicita a interrupção de V-Blank (Bit 0 de IF)
+                uint8_t ifReg = mmu.readByte(0xFF0F);
+                mmu.writeByte(0xFF0F, ifReg | 0x01);
+
                 // Mantém o padrão de teste apenas se a tela estiver desativada,
                 // caso contrário renderiza VRAM real.
                 uint8_t lcdc = mmu.readByte(0xFF40);

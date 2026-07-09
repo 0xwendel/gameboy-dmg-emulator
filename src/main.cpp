@@ -1,6 +1,7 @@
 #include "mmu.hpp"
 #include "cpu.hpp"
 #include "ppu.hpp"
+#include "timer.hpp"
 #include "raylib.h"
 #include <iostream>
 #include <vector>
@@ -53,14 +54,129 @@ void testMBC1() {
     std::cout << "Todos os testes unitarios do MBC1 passaram!\n" << std::endl;
 }
 
+void testTimersAndInterrupts() {
+    std::cout << "Executando testes unitarios de Timers e Interrupcoes..." << std::endl;
+
+    MMU mmu;
+    CPU cpu;
+    Timer timer;
+
+    // Cria uma ROM simulada
+    std::vector<uint8_t> mockROM(0x200, 0x00);
+
+    // Endereço 0x0100: EI (0xFB) -> Ativa interrupções
+    mockROM[0x0100] = 0xFB;
+    // Endereço 0x0101: HALT (0x76) -> Põe a CPU para dormir esperando interrupção
+    mockROM[0x0101] = 0x76;
+    // Endereço 0x0102: NOP (0x00) -> Instrução de retorno
+    mockROM[0x0102] = 0x00;
+
+    // Vetor de Interrupção de Timer (0x0050)
+    // 0x0050: DI (0xF3) -> desativa IME para sabermos que entramos aqui
+    mockROM[0x0050] = 0xF3;
+    // 0x0051: RET (0xC9)
+    mockROM[0x0051] = 0xC9;
+
+    mmu.loadROM(mockROM);
+    mmu.writeByte(0xFF50, 1); // Desliga a Boot ROM
+
+    // Configura o Timer no barramento:
+    mmu.writeByte(0xFF05, 0xFE); // TIMA = 254 (1 estoiro de 255 e depois reload)
+    mmu.writeByte(0xFF06, 0xAA); // TMA = 0xAA (Valor de recarga)
+    mmu.writeByte(0xFF07, 0x05); // TAC = 0x05 (Habilitado, Frequência 262144 Hz -> Ticks a cada 4 M-cycles)
+
+    // Habilita a interrupção de Timer em IE (0xFFFF)
+    mmu.writeByte(0xFFFF, 0x04); // Bit 2 ativo = Timer enabled
+
+    // Executa as instruções
+    uint8_t cycles = 0;
+
+    // 1. Executa EI (0x0100)
+    cycles = cpu.step(mmu);
+    timer.tick(cycles, mmu);
+    assert(cycles == 1);
+    // IME ainda está em delay de 1 instrução (não ativo) ou já ativo no final do ciclo
+
+    // 2. Executa HALT (0x0101) -> CPU entra em modo HALT
+    cycles = cpu.step(mmu);
+    timer.tick(cycles, mmu);
+    assert(cycles == 1);
+    
+    // Ticks acumulados em TIMA: EI (1) + HALT (1) = 2 M-cycles. TIMA ainda é 254.
+
+    // 3. CPU está em HALT. Vamos rodar steps ociosos de 1 ciclo.
+    // Ticking 1 cycle
+    cycles = cpu.step(mmu); timer.tick(cycles, mmu); // total 3 M-cycles
+    assert(cycles == 1);
+
+    // Ticking 1 cycle
+    cycles = cpu.step(mmu); timer.tick(cycles, mmu); // total 4 M-cycles (TIMA incrementa de 254 para 255!)
+    assert(cycles == 1);
+    assert(mmu.readByte(0xFF05) == 0xFF);
+    std::cout << "[Teste Timer] TIMA incrementado para 0xFF ok." << std::endl;
+
+    // Ticking 4 mais cycles (para totalizar 8)
+    for (int i = 0; i < 4; ++i) {
+        cycles = cpu.step(mmu);
+        timer.tick(cycles, mmu);
+    }
+    
+    // Totalizando 8 M-cycles acumulados na frequência /4:
+    // TIMA passa de 0xFF para 0x00 (estouro!)
+    // TIMA deve recarregar TMA = 0xAA
+    // Bit 2 de IF (0xFF0F) deve ser setado para 1.
+    assert(mmu.readByte(0xFF05) == 0xAA);
+    assert((mmu.readByte(0xFF0F) & 0x04) != 0);
+    std::cout << "[Teste Timer] TIMA estourou, recarregou TMA (0xAA) e disparou IF ok." << std::endl;
+
+    // Como o bit de interrupção está ativo em IF e habilitado em IE, no próximo passo a CPU:
+    // 1. Acorda do HALT.
+    // 2. Executa a rotina de interrupção (IME fica false, PC vai para 0x0050, SP decrementa e guarda PC=0x0102).
+    // O desvio consome 5 M-cycles.
+    cycles = cpu.step(mmu);
+    timer.tick(cycles, mmu);
+    assert(cycles == 5);
+
+    // Verifica que PC mudou para 0x0050 e salvou o PC de retorno (0x0102) na pilha
+    assert(cpu.getRegs().pc == 0x0050);
+    uint16_t sp = cpu.getRegs().sp;
+    assert(mmu.readByte(sp) == 0x02);
+    assert(mmu.readByte(sp + 1) == 0x01);
+    assert(cpu.getIme() == false);
+    std::cout << "[Teste Interrupcao] CPU acordou do HALT e desviou para o vetor 0x0050 ok." << std::endl;
+
+    // 4. Executa o tratador de interrupção em 0x0050: DI (0xF3)
+    cycles = cpu.step(mmu);
+    timer.tick(cycles, mmu);
+    assert(cycles == 1);
+    assert(cpu.getRegs().pc == 0x0051);
+
+    // 5. Executa RET (0xC9) para voltar para 0x0102
+    cycles = cpu.step(mmu);
+    timer.tick(cycles, mmu);
+    assert(cycles == 4);
+    assert(cpu.getRegs().pc == 0x0102);
+    assert(cpu.getRegs().sp == sp + 2);
+    std::cout << "[Teste Interrupcao] CPU retornou com sucesso do tratador para o PC original 0x0102 ok." << std::endl;
+
+    // 6. Teste de escrita em DIV resetando para 0
+    mmu.writeByte(0xFF04, 0x88); // Tenta escrever qualquer valor
+    assert(mmu.readByte(0xFF04) == 0x00);
+    std::cout << "[Teste DIV] Escrita em DIV resetou o registrador para 0 ok." << std::endl;
+
+    std::cout << "Todos os testes unitarios de Timers e Interrupcoes passaram!\n" << std::endl;
+}
+
 int main() {
     testMBC1();
+    testTimersAndInterrupts();
 
-    std::cout << "Inicializando Emulador de Game Boy (Fase 3.2: Renderizacao Real de Tiles e Sprites 8x16)..." << std::endl;
+    std::cout << "Inicializando Emulador de Game Boy (Fase 4: Loop Completo com Timers e Graficos)..." << std::endl;
     
     MMU mmu;
     CPU cpu;
     PPU ppu;
+    Timer timer;
     
     // Prepara uma ROM com um loop infinito básico (NOP + JR -3) para manter a CPU rodando
     std::vector<uint8_t> testROM(0x200, 0x00);
@@ -77,18 +193,12 @@ int main() {
     mmu.writeByte(0xFF50, 1);
     
     // Configura LCDC na MMU
-    // LCDC (0xFF40) = 0x97
-    // - Bit 7 = 1: LCD On
-    // - Bit 4 = 1: BG/Window Tile Data em 0x8000
-    // - Bit 2 = 1: Sprite Size = 8x16
-    // - Bit 1 = 1: Sprites Enabled
-    // - Bit 0 = 1: BG Enabled
     mmu.writeByte(0xFF40, 0x97);
     
     // Paletas
-    mmu.writeByte(0xFF47, 0xE4); // BGP: Paleta padrão do Fundo (11 10 01 00)
-    mmu.writeByte(0xFF48, 0xE4); // OBP0: Paleta padrão do Sprite 0 (11 10 01 00)
-    mmu.writeByte(0xFF49, 0x1B); // OBP1: Paleta invertida para o Sprite 2 (00 01 10 11)
+    mmu.writeByte(0xFF47, 0xE4); // BGP
+    mmu.writeByte(0xFF48, 0xE4); // OBP0
+    mmu.writeByte(0xFF49, 0x1B); // OBP1
 
     // --- CARREGA TILES DE BACKGROUND (0x8000 - 0x801F) ---
     uint8_t smileyTile[16] = {
@@ -108,26 +218,13 @@ int main() {
     }
 
     // --- CARREGA TILE DE SPRITE 8x16 (Tile indices 2 e 3 em 0x8020 - 0x803F) ---
-    // Desenha um boneco palito de 8x16
     uint8_t stickFigureTop[16] = {
-        0x18, 0x18, // Linha 0 (Cabeça)
-        0x3C, 0x3C, // Linha 1
-        0x3C, 0x3C, // Linha 2
-        0x18, 0x18, // Linha 3
-        0x18, 0x18, // Linha 4 (Pescoço/Tronco)
-        0x7E, 0x7E, // Linha 5 (Braços abertos)
-        0x99, 0x99, // Linha 6
-        0x99, 0x99  // Linha 7
+        0x18, 0x18, 0x3C, 0x3C, 0x3C, 0x3C, 0x18, 0x18,
+        0x18, 0x18, 0x7E, 0x7E, 0x99, 0x99, 0x99, 0x99
     };
     uint8_t stickFigureBottom[16] = {
-        0x18, 0x18, // Linha 8 (Tronco baixo)
-        0x18, 0x18, // Linha 9
-        0x24, 0x24, // Linha 10 (Pernas)
-        0x24, 0x24, // Linha 11
-        0x42, 0x42, // Linha 12
-        0x42, 0x42, // Linha 13
-        0x81, 0x81, // Linha 14
-        0x81, 0x81  // Linha 15
+        0x18, 0x18, 0x18, 0x18, 0x24, 0x24, 0x24, 0x24,
+        0x42, 0x42, 0x42, 0x42, 0x81, 0x81, 0x81, 0x81
     };
     for (int i = 0; i < 16; ++i) {
         mmu.writeByte(0x8020 + i, stickFigureTop[i]);
@@ -139,7 +236,7 @@ int main() {
     const int SCREEN_HEIGHT = 144;
     const int SCALE = 4;
     
-    InitWindow(SCREEN_WIDTH * SCALE, SCREEN_HEIGHT * SCALE, "Game Boy DMG-01 Emulator - VRAM Tiles & Sprites");
+    InitWindow(SCREEN_WIDTH * SCALE, SCREEN_HEIGHT * SCALE, "Game Boy DMG-01 Emulator - Timers & Interrupts");
     SetTargetFPS(60);
     
     Image emptyImage = GenImageColor(SCREEN_WIDTH, SCREEN_HEIGHT, BLANK);
@@ -147,11 +244,9 @@ int main() {
     UnloadImage(emptyImage);
     
     uint8_t scx = 0;
-    uint8_t scy = 0;
-    
     uint8_t sprite0X = 20;
     
-    std::cout << "Janela do emulador aberta. Rodando loop de Tiles + Sprites..." << std::endl;
+    std::cout << "Janela do emulador aberta. Rodando loop principal de renderizacao..." << std::endl;
     
     // Loop principal da janela gráfica
     while (!WindowShouldClose()) {
@@ -164,31 +259,31 @@ int main() {
         
         // Escreve os dados dos 3 Sprites na OAM
         // --- Sprite 0 (Movendo, Paleta 0, no topo) ---
-        mmu.writeByte(0xFE00, 80);            // Y = 64 (80 - 16)
+        mmu.writeByte(0xFE00, 80);            // Y = 64
         mmu.writeByte(0xFE01, sprite0X + 8);  // X = sprite0X
-        mmu.writeByte(0xFE02, 2);             // Tile index = 2 (Consome 2 e 3 em 8x16)
+        mmu.writeByte(0xFE02, 2);             // Tile index = 2
         mmu.writeByte(0xFE03, 0x00);          // Attrs = 0x00 (Normal)
 
         // --- Sprite 1 (Estático, Espelhado no Eixo X) ---
-        mmu.writeByte(0xFE04, 100);           // Y = 84 (100 - 16)
+        mmu.writeByte(0xFE04, 100);           // Y = 84
         mmu.writeByte(0xFE05, 50);            // X = 42
         mmu.writeByte(0xFE06, 2);             // Tile index = 2
         mmu.writeByte(0xFE07, 0x20);          // Attrs = 0x20 (X-Flip)
 
         // --- Sprite 2 (Estático, Paleta OBP1, Prioridade BG (Drawn behind BG)) ---
-        // Só ficará visível por cima da cor 0 (clara) do fundo
         mmu.writeByte(0xFE08, 120);           // Y = 104
         mmu.writeByte(0xFE09, 100);           // X = 92
         mmu.writeByte(0xFE02 + 8, 2);         // Tile index = 2
-        mmu.writeByte(0xFE03 + 8, 0x90);      // Attrs = 0x90 (OBP1 + BG Priority)
+        mmu.writeByte(0xFE03 + 8, 0x90);      // Attrs = 0x90
 
-        // Roda a CPU e avança a PPU até concluir a varredura do frame (154 scanlines)
+        // Roda a CPU e avança a PPU + Timer até concluir a varredura do frame (154 scanlines)
         while (!ppu.isFrameReady()) {
             uint8_t cycles = cpu.step(mmu);
             ppu.tick(cycles, mmu);
+            timer.tick(cycles, mmu); // Sincroniza o Timer com a CPU
         }
         
-        // Atualiza textura da Raylib com o frame buffer gerado
+        // Atualiza textura da Raylib
         UpdateTexture(screenTexture, ppu.getFrameBuffer());
         
         BeginDrawing();

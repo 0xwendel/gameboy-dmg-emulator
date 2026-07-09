@@ -16,10 +16,15 @@ public:
     void setLY(uint8_t ly);
     void setLCDMode(uint8_t mode);
 
+    // Método para atualizar o registrador divisor DIV
+    void tickDIV(uint8_t dots);
+
     // Carrega a ROM do jogo para memória
     bool loadROM(const std::vector<uint8_t>& romData);
 
 private:
+    // Contador interno do registrador divisor DIV
+    uint16_t m_divCounter;
     // ROM do Cartucho (tamanho dinâmico dependendo da ROM)
     std::vector<uint8_t> m_cartROM;
 

@@ -2,7 +2,7 @@
 #include <iostream>
 #include <iomanip>
 
-CPU::CPU() : m_ime(false) {
+CPU::CPU() : m_ime(false), m_halted(false) {
     // Inicialização dos registradores após o término da Boot ROM do DMG (Game Boy Clássico)
     // conforme especificado na Pan Docs.
     m_regs.a = 0x01;
@@ -43,13 +43,27 @@ uint16_t CPU::fetchWord(MMU& mmu) {
 }
 
 uint8_t CPU::step(MMU& mmu) {
-    uint16_t pc_before = m_regs.pc;
+    uint8_t ie = mmu.readByte(0xFFFF);
+    uint8_t ifReg = mmu.readByte(0xFF0F);
+    uint8_t pendingInterrupts = ie & ifReg;
+
+    if (m_halted) {
+        if (pendingInterrupts != 0) {
+            m_halted = false; // CPU acorda do HALT
+        } else {
+            // Continua parado consome 1 M-cycle
+            return 1;
+        }
+    }
+
+    // Se IME estiver ativo e houver interrupções habilitadas solicitadas
+    if (m_ime && pendingInterrupts != 0) {
+        handleInterrupts(mmu);
+        return 5; // O processamento do desvio da interrupção consome 5 M-cycles
+    }
+
     uint8_t opcode = fetchByte(mmu);
-    
-    // Executa e retorna os ciclos de máquina (M-cycles)
-    uint8_t mCycles = executeOpcode(opcode, mmu);
-    
-    return mCycles;
+    return executeOpcode(opcode, mmu);
 }
 
 void CPU::pushWord(MMU& mmu, uint16_t value) {
@@ -183,7 +197,7 @@ uint8_t CPU::executeOpcode(uint8_t opcode, MMU& mmu) {
     // 1. LD r, r' (0x40 - 0x7F, excluindo HALT 0x76)
     if (opcode >= 0x40 && opcode <= 0x7F) {
         if (opcode == 0x76) {
-            // HALT - Mapeamento temporário
+            m_halted = true;
             return 1;
         }
         uint8_t dest = (opcode >> 3) & 0x07;
@@ -753,4 +767,39 @@ uint8_t CPU::executeCBOpcode(uint8_t cbOpcode, MMU& mmu) {
     }
     
     return cycles;
+}
+
+void CPU::handleInterrupts(MMU& mmu) {
+    uint8_t ie = mmu.readByte(0xFFFF);
+    uint8_t ifReg = mmu.readByte(0xFF0F);
+    uint8_t pending = ie & ifReg;
+
+    if (pending == 0) return;
+
+    // Prioridade física: V-Blank (Bit 0) > LCD STAT (Bit 1) > Timer (Bit 2) > Serial (Bit 3) > Joypad (Bit 4)
+    if (pending & 0x01) {
+        serviceInterrupt(0, 0x0040, mmu);
+    } else if (pending & 0x02) {
+        serviceInterrupt(1, 0x0048, mmu);
+    } else if (pending & 0x04) {
+        serviceInterrupt(2, 0x0050, mmu);
+    } else if (pending & 0x08) {
+        serviceInterrupt(3, 0x0058, mmu);
+    } else if (pending & 0x10) {
+        serviceInterrupt(4, 0x0060, mmu);
+    }
+}
+
+void CPU::serviceInterrupt(uint8_t interruptBit, uint16_t vectorAddress, MMU& mmu) {
+    m_ime = false; // Desliga chave geral de interrupções
+
+    // Limpa a flag de solicitação correspondente em IF (0xFF0F)
+    uint8_t ifReg = mmu.readByte(0xFF0F);
+    mmu.writeByte(0xFF0F, ifReg & ~(1 << interruptBit));
+
+    // Salva o PC de retorno na pilha
+    pushWord(mmu, m_regs.pc);
+
+    // Desvia fluxo para o endereço do vetor
+    m_regs.pc = vectorAddress;
 }

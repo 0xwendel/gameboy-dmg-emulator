@@ -2,7 +2,7 @@
 #include <cstring>
 #include <iostream>
 
-MMU::MMU() : m_ie(0), m_bootRomActive(true), m_ramEnabled(false), m_romBankLower(1), m_romBankUpper(0), m_bankingMode(0) {
+MMU::MMU() : m_ie(0), m_bootRomActive(true), m_ramEnabled(false), m_romBankLower(1), m_romBankUpper(0), m_bankingMode(0), m_divCounter(0) {
     // Inicializa a memória interna com zero
     std::memset(m_vram, 0, sizeof(m_vram));
     std::memset(m_wram, 0, sizeof(m_wram));
@@ -43,6 +43,11 @@ void MMU::setLY(uint8_t ly) {
 
 void MMU::setLCDMode(uint8_t mode) {
     m_io[0x41] = (m_io[0x41] & 0xFC) | (mode & 0x03);
+}
+
+void MMU::tickDIV(uint8_t dots) {
+    m_divCounter += dots;
+    m_io[0x04] = m_divCounter >> 8;
 }
 
 uint8_t MMU::readByte(uint16_t address) const {
@@ -211,6 +216,11 @@ void MMU::writeByte(uint16_t address, uint8_t value) {
     
     // 8. I/O Registers
     if (address >= 0xFF00 && address <= 0xFF7F) {
+        if (address == 0xFF04) {
+            m_divCounter = 0;
+            m_io[0x04] = 0;
+            return;
+        }
         // Registrador especial para desabilitar a BIOS
         if (address == 0xFF50 && value != 0) {
             m_bootRomActive = false;
