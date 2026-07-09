@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <fstream>
 #include <cassert>
 
 void testMBC1() {
@@ -112,42 +113,27 @@ void testJoypad() {
     std::cout << "Executando testes unitarios do Joypad..." << std::endl;
 
     MMU mmu;
-
-    // 1. Por padrão, sem seleções, JOYP (0xFF00) retorna 0xCF (Bits 6-7 = 11, Bits 4-5 = 00, Bits 0-3 = 1111)
-    // Esperado: 0xC0 (bits 6-7) | 0x30 (bits 4-5) | 0x0F (bits 0-3) = 0xFF
     assert(mmu.readByte(0xFF00) == 0xFF);
     std::cout << "[Teste Joypad 1] Inicializacao de JOYP ok." << std::endl;
 
-    // 2. Simula o aperto de botões:
-    // Direcionais: Down solto (1), Up solto (1), Left pressionado (0), Right pressionado (0) -> 0b1100 = 0x0C
-    // Ações: Start pressionado (0), Select solto (1), B solto (1), A pressionado (0) -> 0b0110 = 0x06
     mmu.setJoypadState(0x0C, 0x06);
 
-    // Seleciona apenas Direcionais (escreve bit 4 = 0, bit 5 = 1 -> 0x20)
     mmu.writeByte(0xFF00, 0x20);
-    // Esperado ler: 0xC0 | 0x20 | 0x0C = 0xEC
     assert(mmu.readByte(0xFF00) == 0xEC);
     std::cout << "[Teste Joypad 2] Selecao de Direcionais ok." << std::endl;
 
-    // Seleciona apenas Ações (escreve bit 4 = 1, bit 5 = 0 -> 0x10)
     mmu.writeByte(0xFF00, 0x10);
-    // Esperado ler: 0xC0 | 0x10 | 0x06 = 0xD6
     assert(mmu.readByte(0xFF00) == 0xD6);
     std::cout << "[Teste Joypad 3] Selecao de Acoes ok." << std::endl;
 
-    // Seleciona ambos (escreve 0x00)
     mmu.writeByte(0xFF00, 0x00);
-    // Esperado ler: 0xC0 | 0x00 | (0x0C & 0x06) = 0xC0 | 0x04 = 0xC4
     assert(mmu.readByte(0xFF00) == 0xC4);
     std::cout << "[Teste Joypad 4] Selecao de Ambos ok." << std::endl;
 
-    // 3. Teste de detecção de interrupção por transição de botão
-    mmu.writeByte(0xFF00, 0x20); // Seleciona Direcionais
-    mmu.writeByte(0xFF0F, 0x00); // Limpa interrupções pendentes
+    mmu.writeByte(0xFF00, 0x20); 
+    mmu.writeByte(0xFF0F, 0x00); 
 
-    // Aperta o botão "Up" (bit 2 de 1 -> 0, ou seja, de 0x0C para 0x08)
     mmu.setJoypadState(0x08, 0x06);
-    // Deve disparar a interrupção de Joypad (Bit 4 de IF -> 0x10)
     assert((mmu.readByte(0xFF0F) & 0x10) != 0);
     std::cout << "[Teste Joypad 5] Disparo de interrupcao de entrada ok." << std::endl;
 
@@ -159,98 +145,48 @@ int main() {
     testTimersAndInterrupts();
     testJoypad();
 
-    std::cout << "Inicializando Emulador de Game Boy com Diagnose Panel & Input Polling..." << std::endl;
+    std::cout << "Carregando ROM do Castlevania II..." << std::endl;
+    
+    // Caminho da ROM adicionada
+    std::string romPath = "roms/Castlevania II - Belmont's Revenge (USA, Europe)/Castlevania II - Belmont's Revenge (USA, Europe).gb";
+    std::ifstream file(romPath, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "ERRO: Nao foi possivel abrir a ROM em: " << romPath << std::endl;
+        return 1;
+    }
+    
+    std::vector<uint8_t> romData((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    file.close();
+    
+    std::cout << "Tamanho da ROM lido: " << romData.size() << " bytes." << std::endl;
     
     MMU mmu;
     CPU cpu;
     PPU ppu;
     Timer timer;
     
-    std::vector<uint8_t> testROM(0x200, 0x00);
-    
-    // --- MAIN PROGRAM (0x0100) ---
-    // 0x0100: LD A, 0x05 (Habilita Timer, freq 262144Hz)
-    testROM[0x0100] = 0x3E; testROM[0x0101] = 0x05;
-    // 0x0102: LDH [0x07], A (Escreve em TAC)
-    testROM[0x0102] = 0xE0; testROM[0x0103] = 0x07;
-    // 0x0104: LD A, 0x04 (Habilita interrupção de Timer)
-    testROM[0x0104] = 0x3E; testROM[0x0105] = 0x04;
-    // 0x0106: LDH [0xFF], A (Escreve em IE)
-    testROM[0x0106] = 0xE0; testROM[0x0107] = 0xFF;
-    // 0x0108: EI (Habilita interrupções)
-    testROM[0x0108] = 0xFB;
-    // 0x0109: HALT (Dorme aguardando interrupção)
-    testROM[0x0109] = 0x76;
-    // 0x010A: JR -3 (0x0109 - Volta para o HALT)
-    testROM[0x010A] = 0x18; testROM[0x010B] = 0xFD;
-    
-    // --- TIMER INTERRUPT VECTOR (0x0050) ---
-    testROM[0x0050] = 0xF5;
-    testROM[0x0051] = 0xFA; testROM[0x0052] = 0x00; testROM[0x0053] = 0xC0;
-    testROM[0x0054] = 0x3C;
-    testROM[0x0055] = 0xEA; testROM[0x0056] = 0x00; testROM[0x0057] = 0xC0;
-    testROM[0x0058] = 0xF1;
-    testROM[0x0059] = 0xD9;
-
-    if (!mmu.loadROM(testROM)) {
-        std::cerr << "Falha ao carregar a ROM de teste!" << std::endl;
+    if (!mmu.loadROM(romData)) {
+        std::cerr << "Falha ao inicializar a ROM no barramento da MMU!" << std::endl;
         return 1;
     }
     
+    // Desliga a Boot ROM interna para comecar a execucao diretamente em 0x0100
     mmu.writeByte(0xFF50, 1);
-    mmu.writeByte(0xFF40, 0x97);
-    mmu.writeByte(0xFF47, 0xE4); 
-    mmu.writeByte(0xFF48, 0xE4); 
-    mmu.writeByte(0xFF49, 0x1B); 
-
-    // --- CARREGA TILES DE BACKGROUND ---
-    uint8_t smileyTile[16] = {
-        0x3C, 0x00, 0x42, 0x00, 0xA5, 0x00, 0x81, 0x00,
-        0xA5, 0x00, 0x99, 0x00, 0x42, 0x00, 0x3C, 0x00
-    };
-    uint8_t darkTile[16] = {
-        0xAA, 0xFF, 0x55, 0xFF, 0xAA, 0xFF, 0x55, 0xFF,
-        0xAA, 0xFF, 0x55, 0xFF, 0xAA, 0xFF, 0x55, 0xFF
-    };
-    for (int i = 0; i < 16; ++i) {
-        mmu.writeByte(0x8000 + i, smileyTile[i]);
-        mmu.writeByte(0x8010 + i, darkTile[i]);
-    }
-    for (int i = 0; i < 1024; ++i) {
-        mmu.writeByte(0x9800 + i, ((i % 2) == ((i / 32) % 2)) ? 0 : 1);
-    }
-
-    // --- CARREGA TILE DE SPRITE 8x16 ---
-    uint8_t stickFigureTop[16] = {
-        0x18, 0x18, 0x3C, 0x3C, 0x3C, 0x3C, 0x18, 0x18,
-        0x18, 0x18, 0x7E, 0x7E, 0x99, 0x99, 0x99, 0x99
-    };
-    uint8_t stickFigureBottom[16] = {
-        0x18, 0x18, 0x18, 0x18, 0x24, 0x24, 0x24, 0x24,
-        0x42, 0x42, 0x42, 0x42, 0x81, 0x81, 0x81, 0x81
-    };
-    for (int i = 0; i < 16; ++i) {
-        mmu.writeByte(0x8020 + i, stickFigureTop[i]);
-        mmu.writeByte(0x8030 + i, stickFigureBottom[i]);
-    }
-
+    
     // Configurações do Viewport do Raylib
     const int SCREEN_WIDTH = 160;
     const int SCREEN_HEIGHT = 144;
     const int SCALE = 4;
     const int SIDEBAR_WIDTH = 300;
     
-    InitWindow(SCREEN_WIDTH * SCALE + SIDEBAR_WIDTH, SCREEN_HEIGHT * SCALE, "Game Boy DMG-01 Emulator - Joypad Control");
+    InitWindow(SCREEN_WIDTH * SCALE + SIDEBAR_WIDTH, SCREEN_HEIGHT * SCALE, "Game Boy DMG-01 Emulator - Castlevania II");
     SetTargetFPS(60);
     
     Image emptyImage = GenImageColor(SCREEN_WIDTH, SCREEN_HEIGHT, BLANK);
     Texture2D screenTexture = LoadTextureFromImage(emptyImage);
     UnloadImage(emptyImage);
     
-    uint8_t scx = 0;
-    uint8_t sprite0X = 20;
-    
-    std::cout << "Janela do emulador aberta. Pronto para interacao com o Joypad..." << std::endl;
+    std::cout << "Janela do emulador aberta. Executando jogo..." << std::endl;
     
     // Loop principal da janela gráfica
     while (!WindowShouldClose()) {
@@ -265,7 +201,7 @@ int main() {
         bool keySelect = IsKeyDown(KEY_BACKSPACE) || IsKeyDown(KEY_SPACE);
         bool keyStart = IsKeyDown(KEY_ENTER);
         
-        // Converte para formato do Joypad (Active Low - Bit a 0 significa pressionado)
+        // Converte para formato do Joypad (Active Low)
         uint8_t directions = 0x0F;
         if (keyRight)  directions &= ~0x01; // Bit 0
         if (keyLeft)   directions &= ~0x02; // Bit 1
@@ -278,31 +214,8 @@ int main() {
         if (keySelect) actions &= ~0x04; // Bit 2
         if (keyStart)  actions &= ~0x08; // Bit 3
         
-        // Atualiza a MMU
+        // Atualiza o estado físico do controle na MMU
         mmu.setJoypadState(directions, actions);
-        
-        // Incrementa rolagem do fundo
-        scx++;
-        mmu.writeByte(0xFF43, scx);
-        
-        // Movimenta o Sprite 0 horizontalmente
-        sprite0X = (sprite0X + 1) % 160;
-        
-        // Escreve os dados dos 3 Sprites na OAM
-        mmu.writeByte(0xFE00, 80);            // Y = 64
-        mmu.writeByte(0xFE01, sprite0X + 8);  // X = sprite0X
-        mmu.writeByte(0xFE02, 2);             // Tile index = 2
-        mmu.writeByte(0xFE03, 0x00);          // Attrs = 0x00
-
-        mmu.writeByte(0xFE04, 100);           // Y = 84
-        mmu.writeByte(0xFE05, 50);            // X = 42
-        mmu.writeByte(0xFE06, 2);             // Tile index = 2
-        mmu.writeByte(0xFE07, 0x20);          // Attrs = 0x20
-
-        mmu.writeByte(0xFE08, 120);           // Y = 104
-        mmu.writeByte(0xFE09, 100);           // X = 92
-        mmu.writeByte(0xFE02 + 8, 2);         // Tile index = 2
-        mmu.writeByte(0xFE03 + 8, 0x90);      // Attrs = 0x90
 
         // Roda a CPU e avança a PPU + Timer até concluir a varredura do frame (154 scanlines)
         while (!ppu.isFrameReady()) {
@@ -354,6 +267,17 @@ int main() {
         y += 20;
 
         ss.str(""); ss.clear();
+        ss << "BC: 0x" << std::hex << std::uppercase << cpu.getRegs().bc() 
+           << "  DE: 0x" << cpu.getRegs().de();
+        DrawText(ss.str().c_str(), startX, y, 14, LIGHTGRAY);
+        y += 20;
+
+        ss.str(""); ss.clear();
+        ss << "HL: 0x" << std::hex << std::uppercase << cpu.getRegs().hl();
+        DrawText(ss.str().c_str(), startX, y, 14, LIGHTGRAY);
+        y += 20;
+
+        ss.str(""); ss.clear();
         ss << "IME: " << (cpu.getIme() ? "ON" : "OFF");
         DrawText(ss.str().c_str(), startX, y, 14, cpu.getIme() ? GREEN : ORANGE);
         y += 25;
@@ -396,12 +320,6 @@ int main() {
         ss << "IF (0xFF0F): 0x" << std::hex << std::uppercase << (int)mmu.readByte(0xFF0F);
         DrawText(ss.str().c_str(), startX, y, 14, LIGHTGRAY);
         y += 25;
-
-        // --- TIMER SERVICE COUNT ---
-        uint8_t intCounter = mmu.readByte(0xC000);
-        ss.str(""); ss.clear();
-        ss << "TIMER INT COUNT: " << std::dec << (int)intCounter;
-        DrawText(ss.str().c_str(), startX, y, 14, ORANGE);
         
         DrawFPS(10, 10);
         
