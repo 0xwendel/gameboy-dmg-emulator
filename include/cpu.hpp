@@ -54,6 +54,7 @@ public:
     // Acesso aos registradores (para testes e depuração)
     const Registers& getRegs() const { return m_regs; }
     Registers& getRegs() { return m_regs; }
+    bool getIme() const { return m_ime; }
 
 private:
     Registers m_regs;

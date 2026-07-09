@@ -575,6 +575,59 @@ uint8_t CPU::executeOpcode(uint8_t opcode, MMU& mmu) {
             return 4;
         }
 
+        // --- Instruções Rápidas de Rotação (Apenas Acumulador A) ---
+        case 0x07: { // RLCA
+            uint8_t c = (m_regs.a >> 7) & 1;
+            m_regs.a = (m_regs.a << 1) | c;
+            setFlag(FlagZ, false);
+            setFlag(FlagN, false);
+            setFlag(FlagH, false);
+            setFlag(FlagC, c != 0);
+            return 1;
+        }
+        case 0x0F: { // RRCA
+            uint8_t c = m_regs.a & 1;
+            m_regs.a = (m_regs.a >> 1) | (c << 7);
+            setFlag(FlagZ, false);
+            setFlag(FlagN, false);
+            setFlag(FlagH, false);
+            setFlag(FlagC, c != 0);
+            return 1;
+        }
+        case 0x17: { // RLA
+            uint8_t old_c = getFlag(FlagC) ? 1 : 0;
+            uint8_t new_c = (m_regs.a >> 7) & 1;
+            m_regs.a = (m_regs.a << 1) | old_c;
+            setFlag(FlagZ, false);
+            setFlag(FlagN, false);
+            setFlag(FlagH, false);
+            setFlag(FlagC, new_c != 0);
+            return 1;
+        }
+        case 0x1F: { // RRA
+            uint8_t old_c = getFlag(FlagC) ? 1 : 0;
+            uint8_t new_c = m_regs.a & 1;
+            m_regs.a = (m_regs.a >> 1) | (old_c << 7);
+            setFlag(FlagZ, false);
+            setFlag(FlagN, false);
+            setFlag(FlagH, false);
+            setFlag(FlagC, new_c != 0);
+            return 1;
+        }
+
+        // --- Instruções de Controle do Processador ---
+        case 0x10: // STOP
+            fetchByte(mmu); // Consome o byte imediato extra (0x00)
+            return 1;
+        case 0x76: // HALT
+            return 1;
+        case 0xF3: // DI
+            m_ime = false;
+            return 1;
+        case 0xFB: // EI
+            m_ime = true;
+            return 1;
+
         case 0xCB: { // Prefixo para instruções de manipulação de bits
             uint8_t cbOpcode = fetchByte(mmu);
             return executeCBOpcode(cbOpcode, mmu);
@@ -589,11 +642,115 @@ uint8_t CPU::executeOpcode(uint8_t opcode, MMU& mmu) {
 }
 
 uint8_t CPU::executeCBOpcode(uint8_t cbOpcode, MMU& mmu) {
-    switch (cbOpcode) {
-        default:
-            std::cerr << "AVISO: Opcode prefixado [0xCB] nao implementado: 0x" 
-                      << std::hex << std::setw(2) << std::setfill('0') << (int)cbOpcode 
-                      << " em PC: 0x" << std::setw(4) << (m_regs.pc - 2) << std::endl;
-            return 2;
+    uint8_t mode = (cbOpcode >> 6) & 0x03;       // bits 6-7
+    uint8_t bit_or_op = (cbOpcode >> 3) & 0x07;  // bits 3-5
+    uint8_t reg_index = cbOpcode & 0x07;         // bits 0-2
+    
+    uint8_t val = getRegister(reg_index, mmu);
+    uint8_t cycles = (reg_index == 6) ? 4 : 2; // Memória [HL] leva 4 M-cycles, registradores levam 2 M-cycles
+
+    if (mode == 0) { // Rotate / Shift / Swap
+        switch (bit_or_op) {
+            case 0: { // RLC
+                uint8_t c = (val >> 7) & 1;
+                uint8_t res = (val << 1) | c;
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, c != 0);
+                break;
+            }
+            case 1: { // RRC
+                uint8_t c = val & 1;
+                uint8_t res = (val >> 1) | (c << 7);
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, c != 0);
+                break;
+            }
+            case 2: { // RL
+                uint8_t old_c = getFlag(FlagC) ? 1 : 0;
+                uint8_t new_c = (val >> 7) & 1;
+                uint8_t res = (val << 1) | old_c;
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, new_c != 0);
+                break;
+            }
+            case 3: { // RR
+                uint8_t old_c = getFlag(FlagC) ? 1 : 0;
+                uint8_t new_c = val & 1;
+                uint8_t res = (val >> 1) | (old_c << 7);
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, new_c != 0);
+                break;
+            }
+            case 4: { // SLA
+                uint8_t c = (val >> 7) & 1;
+                uint8_t res = val << 1;
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, c != 0);
+                break;
+            }
+            case 5: { // SRA
+                uint8_t c = val & 1;
+                uint8_t res = (val >> 1) | (val & 0x80);
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, c != 0);
+                break;
+            }
+            case 6: { // SWAP
+                uint8_t res = ((val & 0x0F) << 4) | ((val & 0xF0) >> 4);
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, false);
+                break;
+            }
+            case 7: { // SRL
+                uint8_t c = val & 1;
+                uint8_t res = val >> 1;
+                setRegister(reg_index, res, mmu);
+                setFlag(FlagZ, res == 0);
+                setFlag(FlagN, false);
+                setFlag(FlagH, false);
+                setFlag(FlagC, c != 0);
+                break;
+            }
+        }
+    } else if (mode == 1) { // BIT
+        uint8_t bit = bit_or_op;
+        bool is_set = (val & (1 << bit)) != 0;
+        setFlag(FlagZ, !is_set);
+        setFlag(FlagN, false);
+        setFlag(FlagH, true);
+        if (reg_index == 6) {
+            cycles = 3; // BIT b, [HL] leva 3 M-cycles
+        }
+    } else if (mode == 2) { // RES
+        uint8_t bit = bit_or_op;
+        uint8_t res = val & ~(1 << bit);
+        setRegister(reg_index, res, mmu);
+    } else if (mode == 3) { // SET
+        uint8_t bit = bit_or_op;
+        uint8_t res = val | (1 << bit);
+        setRegister(reg_index, res, mmu);
     }
+    
+    return cycles;
 }
