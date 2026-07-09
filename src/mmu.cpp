@@ -237,6 +237,14 @@ void MMU::writeByte(uint16_t address, uint8_t value) {
             m_io[0x04] = 0;
             return;
         }
+        if (address == 0xFF46) {
+            m_io[0x46] = value;
+            uint16_t srcAddress = static_cast<uint16_t>(value) << 8;
+            for (uint16_t i = 0; i < 160; ++i) {
+                m_oam[i] = readByte(srcAddress + i);
+            }
+            return;
+        }
         // Registrador especial para desabilitar a BIOS
         if (address == 0xFF50 && value != 0) {
             m_bootRomActive = false;

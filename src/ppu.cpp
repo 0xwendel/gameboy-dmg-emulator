@@ -306,8 +306,8 @@ void PPU::renderSprites(MMU& mmu) {
         if (m_ly >= yPos && m_ly < (yPos + spriteHeight)) {
             // Guarda o sprite
             visibleSprites.push_back({
-                static_cast<uint8_t>(xPos),
-                static_cast<uint8_t>(yPos),
+                xPos,
+                yPos,
                 tile,
                 attrs,
                 i

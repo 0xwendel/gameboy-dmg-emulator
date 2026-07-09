@@ -63,8 +63,8 @@ private:
 
     // Estrutura para ordenar e filtrar os sprites ativos na scanline
     struct ScanlineSprite {
-        uint8_t x;
-        uint8_t y;
+        int16_t x;
+        int16_t y;
         uint8_t tile;
         uint8_t attrs;
         uint8_t oamIndex;
