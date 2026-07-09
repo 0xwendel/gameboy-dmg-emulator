@@ -12,6 +12,10 @@ public:
     uint8_t readByte(uint16_t address) const;
     void writeByte(uint16_t address, uint8_t value);
 
+    // Métodos para a PPU atualizar o estado interno dos registradores de E/S
+    void setLY(uint8_t ly);
+    void setLCDMode(uint8_t mode);
+
     // Carrega a ROM do jogo para memória
     bool loadROM(const std::vector<uint8_t>& romData);
 

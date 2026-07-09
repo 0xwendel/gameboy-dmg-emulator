@@ -18,6 +18,14 @@ bool MMU::loadROM(const std::vector<uint8_t>& romData) {
     return true;
 }
 
+void MMU::setLY(uint8_t ly) {
+    m_io[0x44] = ly;
+}
+
+void MMU::setLCDMode(uint8_t mode) {
+    m_io[0x41] = (m_io[0x41] & 0xFC) | (mode & 0x03);
+}
+
 uint8_t MMU::readByte(uint16_t address) const {
     // 1. ROM do Cartucho (e BIOS se ativa)
     if (address <= 0x7FFF) {

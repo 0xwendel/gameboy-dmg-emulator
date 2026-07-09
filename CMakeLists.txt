@@ -19,6 +19,7 @@ add_executable(gb_emulator
   src/main.cpp
   src/mmu.cpp
   src/cpu.cpp
+  src/ppu.cpp
 )
 
 target_include_directories(gb_emulator PRIVATE
