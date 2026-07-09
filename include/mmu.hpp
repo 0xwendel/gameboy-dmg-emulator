@@ -36,4 +36,10 @@ private:
 
     // Flag para indicar se a Boot ROM (BIOS) interna está ativa
     bool m_bootRomActive;
+
+    // --- Estado do Mapeador de Cartucho MBC1 ---
+    bool m_ramEnabled;        // RAM habilitada quando escrito 0x0A em 0x0000-0x1FFF
+    uint8_t m_romBankLower;   // Bits 0-4 do banco de ROM (escrito em 0x2000-0x3FFF)
+    uint8_t m_romBankUpper;   // Bits 5-6 do banco de ROM / Banco de RAM (escrito em 0x4000-0x5FFF)
+    uint8_t m_bankingMode;    // Modo de mapeamento: 0 = ROM (padrão), 1 = RAM (escrito em 0x6000-0x7FFF)
 };

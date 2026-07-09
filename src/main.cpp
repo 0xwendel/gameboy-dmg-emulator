@@ -4,9 +4,79 @@
 #include "raylib.h"
 #include <iostream>
 #include <vector>
+#include <cassert>
+
+void testMBC1() {
+    std::cout << "Executando testes unitarios do MBC1..." << std::endl;
+
+    MMU mmu;
+
+    // Simula uma ROM de 64KB (4 bancos de 16KB cada)
+    std::vector<uint8_t> mockROM(64 * 1024, 0x00);
+
+    // Escreve assinaturas únicas em cada banco
+    // Banco 0: 0x0000 - 0x3FFF (assina com 0x00)
+    // Banco 1: 0x4000 - 0x7FFF (assina com 0x11)
+    // Banco 2: 0x8000 - 0xBFFF (assina com 0x22)
+    // Banco 3: 0xC000 - 0xFFFF (assina com 0x33)
+    for (size_t i = 0x0000; i < 0x4000; ++i) mockROM[i] = 0x00;
+    for (size_t i = 0x4000; i < 0x8000; ++i) mockROM[i] = 0x11;
+    for (size_t i = 0x8000; i < 0xC000; ++i) mockROM[i] = 0x22;
+    for (size_t i = 0xC000; i < 0x10000; ++i) mockROM[i] = 0x33;
+
+    // Define no header da ROM o código 0x02 para RAM de 8KB (endereço 0x0149)
+    mockROM[0x0149] = 0x02; 
+
+    // Carrega a ROM na MMU
+    bool loaded = mmu.loadROM(mockROM);
+    assert(loaded == true);
+
+    // Desabilita a Boot ROM
+    mmu.writeByte(0xFF50, 1);
+
+    // 1. Por padrão, a janela 0x4000-0x7FFF deve apontar para o Banco 1 (0x11)
+    assert(mmu.readByte(0x4000) == 0x11);
+    std::cout << "[Teste 1] Banco inicial padrao (Banco 1) ok." << std::endl;
+
+    // 2. Chaveia para o Banco 2 escrevendo no registrador 0x2000-0x3FFF
+    mmu.writeByte(0x2000, 2);
+    assert(mmu.readByte(0x4000) == 0x22);
+    std::cout << "[Teste 2] Chaveamento de banco (Banco 2) ok." << std::endl;
+
+    // 3. Chaveia para o Banco 3
+    mmu.writeByte(0x2000, 3);
+    assert(mmu.readByte(0x4000) == 0x33);
+    std::cout << "[Teste 3] Chaveamento de banco (Banco 3) ok." << std::endl;
+
+    // 4. Se escrever 0 em 0x2000, o MBC1 deve traduzir para Banco 1 (0x11)
+    mmu.writeByte(0x2000, 0);
+    assert(mmu.readByte(0x4000) == 0x11);
+    std::cout << "[Teste 4] Escrita de banco 0 corrigida para banco 1 ok." << std::endl;
+
+    // 5. Verifica comportamento da RAM externa (SRAM) desativada por padrão
+    assert(mmu.readByte(0xA000) == 0xFF); 
+
+    // Ativa RAM externa escrevendo 0x0A no registrador 0x0000-0x1FFF
+    mmu.writeByte(0x0000, 0x0A);
+    
+    // Escreve um valor teste na RAM externa
+    mmu.writeByte(0xA000, 0x77);
+    assert(mmu.readByte(0xA000) == 0x77);
+    std::cout << "[Teste 5] Escrita e leitura na RAM externa (ativada) ok." << std::endl;
+
+    // Desativa a RAM externa escrevendo 0x00 em 0x0000
+    mmu.writeByte(0x0000, 0x00);
+    assert(mmu.readByte(0xA000) == 0xFF);
+    std::cout << "[Teste 6] RAM desativada retorna 0xFF ok." << std::endl;
+
+    std::cout << "Todos os testes unitarios do MBC1 passaram!" << std::endl;
+}
 
 int main() {
-    std::cout << "Inicializando Emulador de Game Boy (Fase 3: Visualizacao PPU com Raylib)..." << std::endl;
+    // Executa validação de mapeamento de cartucho primeiro
+    testMBC1();
+
+    std::cout << "\nInicializando Emulador de Game Boy (Fase 3: Visualizacao PPU com Raylib)..." << std::endl;
     
     MMU mmu;
     CPU cpu;
