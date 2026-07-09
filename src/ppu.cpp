@@ -1,5 +1,6 @@
 #include "ppu.hpp"
 #include <iostream>
+#include <algorithm>
 
 PPU::PPU() : m_scanlineTicks(0), m_ly(0), m_mode(ModeOAMSearch), m_frameReady(false) {
     // Inicializa o buffer com a cor mais clara da paleta
@@ -108,6 +109,11 @@ void PPU::renderScanline(MMU& mmu) {
         return;
     }
 
+    // Inicializa o rastreador de cor de fundo com 0 (transparente)
+    for (int i = 0; i < 160; ++i) {
+        m_scanlineBGColorIndex[i] = 0;
+    }
+
     // Renderiza a camada de Background se ativada (Bit 0)
     if (lcdc & 0x01) {
         renderBG(mmu);
@@ -116,6 +122,11 @@ void PPU::renderScanline(MMU& mmu) {
     // Renderiza a camada de Window se ativada (Bit 5)
     if (lcdc & 0x20) {
         renderWindow(mmu);
+    }
+
+    // Renderiza os Sprites (OBJ) se ativados (Bit 1)
+    if (lcdc & 0x02) {
+        renderSprites(mmu);
     }
 }
 
@@ -163,6 +174,9 @@ void PPU::renderBG(MMU& mmu) {
         uint8_t lowBit = (byteA >> bitShift) & 1;
         uint8_t highBit = (byteB >> bitShift) & 1;
         uint8_t colorIndex = (highBit << 1) | lowBit;
+
+        // Guarda o índice de cor bruta para prioridade de sprites
+        m_scanlineBGColorIndex[x] = colorIndex;
 
         // Mapeia a cor através da paleta BGP
         uint8_t paletteShade = (bgp >> (colorIndex * 2)) & 0x03;
@@ -221,8 +235,130 @@ void PPU::renderWindow(MMU& mmu) {
         uint8_t highBit = (byteB >> bitShift) & 1;
         uint8_t colorIndex = (highBit << 1) | lowBit;
 
+        // Guarda o índice de cor bruta para prioridade de sprites
+        m_scanlineBGColorIndex[x] = colorIndex;
+
         uint8_t paletteShade = (bgp >> (colorIndex * 2)) & 0x03;
 
         m_frameBuffer[m_ly * 160 + x] = PALETTE[paletteShade];
+    }
+}
+
+void PPU::renderSprites(MMU& mmu) {
+    uint8_t lcdc = mmu.readByte(0xFF40);
+    
+    // Determina tamanho do sprite (Bit 2: 0 = 8x8, 1 = 8x16)
+    bool is8x16 = (lcdc & 0x04) != 0;
+    uint8_t spriteHeight = is8x16 ? 16 : 8;
+
+    std::vector<ScanlineSprite> visibleSprites;
+
+    // Varre os 40 sprites da OAM (0xFE00 - 0xFE9F)
+    for (uint8_t i = 0; i < 40; ++i) {
+        uint16_t oamBase = 0xFE00 + i * 4;
+        
+        // Posições físicas na memória
+        uint8_t yByte = mmu.readByte(oamBase);
+        uint8_t xByte = mmu.readByte(oamBase + 1);
+        uint8_t tile = mmu.readByte(oamBase + 2);
+        uint8_t attrs = mmu.readByte(oamBase + 3);
+
+        int16_t yPos = static_cast<int16_t>(yByte) - 16;
+        int16_t xPos = static_cast<int16_t>(xByte) - 8;
+
+        // Verifica se o sprite cruza a linha de varredura atual (m_ly)
+        if (m_ly >= yPos && m_ly < (yPos + spriteHeight)) {
+            // Guarda o sprite
+            visibleSprites.push_back({
+                static_cast<uint8_t>(xPos),
+                static_cast<uint8_t>(yPos),
+                tile,
+                attrs,
+                i
+            });
+
+            // Limite físico de renderização de 10 sprites por linha
+            if (visibleSprites.size() == 10) {
+                break;
+            }
+        }
+    }
+
+    // Ordenação de prioridade de sprites no DMG-01 clássico:
+    // 1. Menor X-coordinate desenha por cima.
+    // 2. Se X-coordinates iguais, menor índice OAM desenha por cima.
+    // Ordenamos do menor prioridade para o de maior prioridade (Painter's Algorithm)
+    std::sort(visibleSprites.begin(), visibleSprites.end(), [](const ScanlineSprite& a, const ScanlineSprite& b) {
+        if (a.x != b.x) {
+            return a.x > b.x; // Maior X desenha primeiro (fica por baixo)
+        }
+        return a.oamIndex > b.oamIndex; // Maior OAM Index desenha primeiro (fica por baixo)
+    });
+
+    // Renderiza cada sprite
+    for (const auto& sprite : visibleSprites) {
+        bool bgPriority = (sprite.attrs & 0x80) != 0;
+        bool yFlip = (sprite.attrs & 0x40) != 0;
+        bool xFlip = (sprite.attrs & 0x20) != 0;
+        
+        // Seleção de paleta (Bit 4: 0 = OBP0, 1 = OBP1)
+        uint16_t paletteReg = (sprite.attrs & 0x10) ? 0xFF49 : 0xFF48;
+        uint8_t obp = mmu.readByte(paletteReg);
+
+        // Linha interna do sprite correspondente à scanline m_ly
+        uint8_t spriteRow = m_ly - sprite.y;
+        if (yFlip) {
+            spriteRow = spriteHeight - 1 - spriteRow;
+        }
+
+        // Resolução do índice do tile
+        uint8_t tileIndex = sprite.tile;
+        uint8_t tileRow = spriteRow;
+
+        if (is8x16) {
+            // No modo 8x16, o bit 0 do índice do tile é forçado a 0
+            tileIndex &= 0xFE;
+            if (spriteRow >= 8) {
+                tileIndex |= 1;
+                tileRow = spriteRow - 8;
+            }
+        }
+
+        // Endereço do tile na VRAM (Sprites sempre usam modo unsigned a partir de 0x8000)
+        uint16_t tileAddress = 0x8000 + (tileIndex * 16);
+        uint8_t byteA = mmu.readByte(tileAddress + tileRow * 2);
+        uint8_t byteB = mmu.readByte(tileAddress + tileRow * 2 + 1);
+
+        for (int col = 0; col < 8; ++col) {
+            int16_t pixelX = sprite.x + col;
+            
+            // Ignora se o pixel do sprite estiver fora dos limites da tela horizontal
+            if (pixelX < 0 || pixelX >= 160) {
+                continue;
+            }
+
+            uint8_t tileCol = col;
+            if (xFlip) {
+                tileCol = 7 - tileCol;
+            }
+
+            uint8_t bitShift = 7 - tileCol;
+            uint8_t lowBit = (byteA >> bitShift) & 1;
+            uint8_t highBit = (byteB >> bitShift) & 1;
+            uint8_t colorIndex = (highBit << 1) | lowBit;
+
+            // Índice 0 de cor em sprite é sempre transparente
+            if (colorIndex == 0) {
+                continue;
+            }
+
+            // Se a prioridade BG-para-OBJ estiver ativada e o pixel de fundo for opaco (cor 1-3), oculta o sprite
+            if (bgPriority && m_scanlineBGColorIndex[pixelX] != 0) {
+                continue;
+            }
+
+            uint8_t paletteShade = (obp >> (colorIndex * 2)) & 0x03;
+            m_frameBuffer[m_ly * 160 + pixelX] = PALETTE[paletteShade];
+        }
     }
 }

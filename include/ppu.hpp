@@ -59,4 +59,18 @@ private:
     void renderScanline(MMU& mmu);
     void renderBG(MMU& mmu);
     void renderWindow(MMU& mmu);
+    void renderSprites(MMU& mmu);
+
+    // Estrutura para ordenar e filtrar os sprites ativos na scanline
+    struct ScanlineSprite {
+        uint8_t x;
+        uint8_t y;
+        uint8_t tile;
+        uint8_t attrs;
+        uint8_t oamIndex;
+    };
+
+    // Buffer temporário para salvar os índices de cor (0-3) do Fundo/Janela da linha atual
+    // Usado para computar a prioridade BG-para-OBJ (se o pixel do BG é transparente ou opaco)
+    uint8_t m_scanlineBGColorIndex[160];
 };
