@@ -6,39 +6,43 @@
 
 namespace {
 constexpr uint8_t kDutyTable[4][8] = {
-    {0, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 0, 0, 1},
-    {1, 0, 0, 0, 0, 1, 1, 1},
-    {0, 1, 1, 1, 1, 1, 1, 0},
+    {0, 0, 0, 0, 0, 0, 0, 1}, // 12.5%
+    {1, 0, 0, 0, 0, 0, 0, 1}, // 25%
+    {1, 0, 0, 0, 0, 1, 1, 1}, // 50%
+    {0, 1, 1, 1, 1, 1, 1, 0}, // 75%
 };
 
+// Divisor codes: 0 → 8 (não 0.5*8 em T-cycles daqui; tabela padrão emuladores)
 constexpr uint8_t kNoiseDivisors[8] = {8, 16, 32, 48, 64, 80, 96, 112};
 
-// Bit 12 do contador DIV de 16 bits → 512 Hz (frame sequencer).
 constexpr uint16_t kDivFsBit = 1u << 12;
 
 void push16(std::vector<uint8_t>& out, uint16_t v) {
     out.push_back(static_cast<uint8_t>(v & 0xFF));
     out.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
 }
-
 bool read16(const uint8_t*& ptr, const uint8_t* end, uint16_t& v) {
     if (end - ptr < 2) return false;
     v = static_cast<uint16_t>(ptr[0] | (ptr[1] << 8));
     ptr += 2;
     return true;
 }
-
+void push32(std::vector<uint8_t>& out, uint32_t v) {
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<uint8_t>((v >> (i * 8)) & 0xFF));
+}
+bool read32(const uint8_t*& ptr, const uint8_t* end, uint32_t& v) {
+    if (end - ptr < 4) return false;
+    v = static_cast<uint32_t>(ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24));
+    ptr += 4;
+    return true;
+}
 void push8(std::vector<uint8_t>& out, uint8_t v) { out.push_back(v); }
-
 bool read8(const uint8_t*& ptr, const uint8_t* end, uint8_t& v) {
     if (end - ptr < 1) return false;
     v = *ptr++;
     return true;
 }
-
 void pushBool(std::vector<uint8_t>& out, bool v) { out.push_back(v ? 1 : 0); }
-
 bool readBool(const uint8_t*& ptr, const uint8_t* end, bool& v) {
     if (end - ptr < 1) return false;
     v = (*ptr++ != 0);
@@ -47,21 +51,20 @@ bool readBool(const uint8_t*& ptr, const uint8_t* end, bool& v) {
 } // namespace
 
 // ---------- Square ----------
-uint16_t APU::SquareChannel::period() const {
-    return static_cast<uint16_t>((2048 - (frequency & 0x7FF)) * 4);
+uint32_t APU::SquareChannel::period() const {
+    return static_cast<uint32_t>((2048u - (frequency & 0x7FFu)) * 4u);
 }
 
 uint16_t APU::SquareChannel::calcSweep() const {
-    uint16_t delta = shadowFreq >> sweepShift;
-    if (sweepDecrease) {
-        return static_cast<uint16_t>(shadowFreq - delta);
-    }
+    const uint16_t delta = shadowFreq >> sweepShift;
+    if (sweepDecrease) return static_cast<uint16_t>(shadowFreq - delta);
     return static_cast<uint16_t>(shadowFreq + delta);
 }
 
 void APU::SquareChannel::trigger(bool isCh1) {
     enabled = dacEnabled;
     freqTimer = period();
+    if (freqTimer == 0) freqTimer = 4;
     dutyStep = 0;
     envelopeTimer = envelopePeriod ? envelopePeriod : 8;
     envelopeRunning = true;
@@ -120,37 +123,36 @@ void APU::SquareChannel::clockSweep() {
     if (sweepShift != 0) {
         shadowFreq = newFreq;
         frequency = newFreq & 0x7FF;
-        // Overflow check com o novo shadow
-        const uint16_t check = calcSweep();
-        if (check > 0x7FF) enabled = false;
+        if (calcSweep() > 0x7FF) enabled = false;
     }
 }
 
 uint8_t APU::SquareChannel::digitalOutput() const {
     if (!enabled || !dacEnabled) return 0;
-    const uint8_t bit = kDutyTable[duty & 3][dutyStep & 7];
-    return bit ? volume : 0;
+    return kDutyTable[duty & 3][dutyStep & 7] ? volume : 0;
 }
 
 void APU::SquareChannel::tickTimer() {
+    if (!dacEnabled) return; // timer roda se DAC on em HW; simplificamos: só se enabled
     if (!enabled) return;
     if (freqTimer > 0) --freqTimer;
     if (freqTimer == 0) {
         freqTimer = period();
+        if (freqTimer == 0) freqTimer = 4;
         dutyStep = static_cast<uint8_t>((dutyStep + 1) & 7);
     }
 }
 
 // ---------- Wave ----------
-uint16_t APU::WaveChannel::period() const {
-    return static_cast<uint16_t>((2048 - (frequency & 0x7FF)) * 2);
+uint32_t APU::WaveChannel::period() const {
+    return static_cast<uint32_t>((2048u - (frequency & 0x7FFu)) * 2u);
 }
 
 void APU::WaveChannel::trigger() {
     enabled = dacEnabled;
     freqTimer = period();
+    if (freqTimer == 0) freqTimer = 2;
     position = 0;
-    // sample inicial da wave RAM
     currentSample = (waveRam[0] >> 4) & 0x0F;
     if (length == 0) length = 256;
 }
@@ -166,9 +168,9 @@ uint8_t APU::WaveChannel::digitalOutput() const {
     if (!enabled || !dacEnabled || volumeCode == 0) return 0;
     uint8_t shift = 0;
     switch (volumeCode) {
-        case 1: shift = 0; break; // 100%
-        case 2: shift = 1; break; // 50%
-        case 3: shift = 2; break; // 25%
+        case 1: shift = 0; break;
+        case 2: shift = 1; break;
+        case 3: shift = 2; break;
         default: return 0;
     }
     return static_cast<uint8_t>(currentSample >> shift);
@@ -179,6 +181,7 @@ void APU::WaveChannel::tickTimer() {
     if (freqTimer > 0) --freqTimer;
     if (freqTimer == 0) {
         freqTimer = period();
+        if (freqTimer == 0) freqTimer = 2;
         position = static_cast<uint8_t>((position + 1) & 31);
         const uint8_t byte = waveRam[position >> 1];
         currentSample = (position & 1) ? (byte & 0x0F) : static_cast<uint8_t>((byte >> 4) & 0x0F);
@@ -186,8 +189,12 @@ void APU::WaveChannel::tickTimer() {
 }
 
 // ---------- Noise ----------
-uint16_t APU::NoiseChannel::period() const {
-    return static_cast<uint16_t>(kNoiseDivisors[divisorCode & 7] << clockShift);
+uint32_t APU::NoiseChannel::period() const {
+    // divisor << shift; 32-bit evita wrap (antes: uint16 estourava com shift alto → chiado)
+    const uint32_t div = kNoiseDivisors[divisorCode & 7];
+    const uint32_t shift = clockShift & 0x0F;
+    // shift 14: hardware ainda conta, mas muito lento; não silenciamos
+    return div << shift;
 }
 
 void APU::NoiseChannel::trigger() {
@@ -198,6 +205,7 @@ void APU::NoiseChannel::trigger() {
     volume = (nr2 >> 4) & 0x0F;
     if (length == 0) length = 64;
     freqTimer = period();
+    if (freqTimer == 0) freqTimer = 8;
 }
 
 void APU::NoiseChannel::clockLength() {
@@ -224,7 +232,6 @@ void APU::NoiseChannel::clockEnvelope() {
 
 uint8_t APU::NoiseChannel::digitalOutput() const {
     if (!enabled || !dacEnabled) return 0;
-    // Bit 0 do LFSR invertido → saída
     return ((~lfsr) & 1) ? volume : 0;
 }
 
@@ -233,6 +240,7 @@ void APU::NoiseChannel::tickTimer() {
     if (freqTimer > 0) --freqTimer;
     if (freqTimer == 0) {
         freqTimer = period();
+        if (freqTimer == 0) freqTimer = 8;
         const uint8_t xorBit = static_cast<uint8_t>((lfsr ^ (lfsr >> 1)) & 1);
         lfsr = static_cast<uint16_t>((lfsr >> 1) | (static_cast<uint16_t>(xorBit) << 14));
         if (widthMode) {
@@ -245,7 +253,12 @@ void APU::NoiseChannel::tickTimer() {
 // ---------- APU ----------
 APU::APU() {
     m_ch1.hasSweep = true;
+    m_ring.assign(kRingCapacity * 2, 0);
     reset();
+}
+
+void APU::setVolume(float volume) {
+    m_volume = std::clamp(volume, 0.0f, 1.0f);
 }
 
 void APU::reset() {
@@ -262,12 +275,34 @@ void APU::reset() {
     m_sampleTimer = 0;
     m_capLeft = 0;
     m_capRight = 0;
-    m_sampleBuffer.clear();
-    m_sampleBuffer.reserve(static_cast<size_t>(kSampleRate / 5) * 2);
+    clearSampleBuffer();
+}
+
+void APU::clearSampleBuffer() {
+    m_ringRead = m_ringWrite = m_ringFrames = 0;
+    if (m_ring.size() != kRingCapacity * 2) {
+        m_ring.assign(kRingCapacity * 2, 0);
+    }
+}
+
+size_t APU::samplesAvailable() const {
+    return m_ringFrames;
+}
+
+void APU::pushSample(int16_t l, int16_t r) {
+    if (m_ringFrames >= kRingCapacity) {
+        // Drop oldest frame (evita latência infinita)
+        m_ringRead = (m_ringRead + 1) % kRingCapacity;
+        --m_ringFrames;
+    }
+    const size_t i = m_ringWrite * 2;
+    m_ring[i] = l;
+    m_ring[i + 1] = r;
+    m_ringWrite = (m_ringWrite + 1) % kRingCapacity;
+    ++m_ringFrames;
 }
 
 void APU::powerOff() {
-    // Zera NRxx (exceto wave RAM) e desliga canais
     for (uint16_t a = 0xFF10; a <= 0xFF25; ++a) {
         writeRegister(a, 0);
     }
@@ -284,7 +319,6 @@ void APU::updateNr52Status() {
 }
 
 void APU::clockFrameSequencer() {
-    // 512 Hz, 8 steps: length 0/2/4/6, sweep 2/6, envelope 7
     switch (m_frameSeqStep) {
         case 0:
         case 2:
@@ -294,9 +328,7 @@ void APU::clockFrameSequencer() {
             m_ch2.clockLength();
             m_ch3.clockLength();
             m_ch4.clockLength();
-            if (m_frameSeqStep == 2 || m_frameSeqStep == 6) {
-                m_ch1.clockSweep();
-            }
+            if (m_frameSeqStep == 2 || m_frameSeqStep == 6) m_ch1.clockSweep();
             break;
         case 7:
             m_ch1.clockEnvelope();
@@ -311,23 +343,13 @@ void APU::clockFrameSequencer() {
 }
 
 void APU::maybeExtraLengthClock(bool wasLengthEnabled, bool nowLengthEnabled, SquareChannel& ch) {
-    // Extra length clock: enable 0→1 e o *próximo* step do FS *não* clocka length
-    // (próximo step = m_frameSeqStep; length em steps pares 0,2,4,6).
-    if (!wasLengthEnabled && nowLengthEnabled && (m_frameSeqStep & 1) != 0) {
-        ch.clockLength();
-    }
+    if (!wasLengthEnabled && nowLengthEnabled && (m_frameSeqStep & 1) != 0) ch.clockLength();
 }
-
 void APU::maybeExtraLengthClock(bool wasLengthEnabled, bool nowLengthEnabled, WaveChannel& ch) {
-    if (!wasLengthEnabled && nowLengthEnabled && (m_frameSeqStep & 1) != 0) {
-        ch.clockLength();
-    }
+    if (!wasLengthEnabled && nowLengthEnabled && (m_frameSeqStep & 1) != 0) ch.clockLength();
 }
-
 void APU::maybeExtraLengthClock(bool wasLengthEnabled, bool nowLengthEnabled, NoiseChannel& ch) {
-    if (!wasLengthEnabled && nowLengthEnabled && (m_frameSeqStep & 1) != 0) {
-        ch.clockLength();
-    }
+    if (!wasLengthEnabled && nowLengthEnabled && (m_frameSeqStep & 1) != 0) ch.clockLength();
 }
 
 void APU::writeRegister(uint16_t address, uint8_t value) {
@@ -347,21 +369,13 @@ void APU::writeRegister(uint16_t address, uint8_t value) {
         return;
     }
 
-    // Wave RAM sempre gravável
     if (address >= 0xFF30 && address <= 0xFF3F) {
-        // Enquanto CH3 toca, writes corrompem o byte "atual" (comportamento DMG)
-        if (m_ch3.enabled) {
-            m_ch3.waveRam[m_ch3.position >> 1] = value;
-        } else {
-            m_ch3.waveRam[address - 0xFF30] = value;
-        }
+        if (m_ch3.enabled) m_ch3.waveRam[m_ch3.position >> 1] = value;
+        else m_ch3.waveRam[address - 0xFF30] = value;
         return;
     }
 
-    if (!(m_nr52 & 0x80)) {
-        // Power off: ignora NRxx (exceto NR52 e wave RAM)
-        return;
-    }
+    if (!(m_nr52 & 0x80)) return;
 
     switch (address) {
         case 0xFF10:
@@ -369,10 +383,7 @@ void APU::writeRegister(uint16_t address, uint8_t value) {
             m_ch1.sweepPeriod = (value >> 4) & 0x07;
             m_ch1.sweepDecrease = (value & 0x08) != 0;
             m_ch1.sweepShift = value & 0x07;
-            // Negate mode disable após uso com negate → desliga canal (quirk DMG)
-            if (!m_ch1.sweepDecrease && m_ch1.sweepNegateUsed) {
-                m_ch1.enabled = false;
-            }
+            if (!m_ch1.sweepDecrease && m_ch1.sweepNegateUsed) m_ch1.enabled = false;
             break;
         case 0xFF11:
             m_ch1.nr1 = value;
@@ -385,8 +396,6 @@ void APU::writeRegister(uint16_t address, uint8_t value) {
             m_ch1.envelopePeriod = value & 0x07;
             m_ch1.dacEnabled = (value & 0xF8) != 0;
             if (!m_ch1.dacEnabled) m_ch1.enabled = false;
-            // Volume só recarrega no trigger; Zombie mode simplificado: write com DAC on
-            // atualiza period/direction (volume em trigger)
             break;
         case 0xFF13:
             m_ch1.nr3 = value;
@@ -401,7 +410,6 @@ void APU::writeRegister(uint16_t address, uint8_t value) {
             if (value & 0x80) m_ch1.trigger(true);
             break;
         }
-
         case 0xFF16:
             m_ch2.nr1 = value;
             m_ch2.duty = (value >> 6) & 0x03;
@@ -427,7 +435,6 @@ void APU::writeRegister(uint16_t address, uint8_t value) {
             if (value & 0x80) m_ch2.trigger(false);
             break;
         }
-
         case 0xFF1A:
             m_ch3.nr0 = value;
             m_ch3.dacEnabled = (value & 0x80) != 0;
@@ -454,7 +461,6 @@ void APU::writeRegister(uint16_t address, uint8_t value) {
             if (value & 0x80) m_ch3.trigger();
             break;
         }
-
         case 0xFF20:
             m_ch4.nr1 = value;
             m_ch4.length = static_cast<uint8_t>(64 - (value & 0x3F));
@@ -480,25 +486,15 @@ void APU::writeRegister(uint16_t address, uint8_t value) {
             if (value & 0x80) m_ch4.trigger();
             break;
         }
-
-        case 0xFF24:
-            m_nr50 = value;
-            break;
-        case 0xFF25:
-            m_nr51 = value;
-            break;
-
-        default:
-            break;
+        case 0xFF24: m_nr50 = value; break;
+        case 0xFF25: m_nr51 = value; break;
+        default: break;
     }
     updateNr52Status();
 }
 
 uint8_t APU::readRegister(uint16_t address) const {
-    auto orMask = [](uint8_t v, uint8_t mask) {
-        return static_cast<uint8_t>(v | mask);
-    };
-
+    auto orMask = [](uint8_t v, uint8_t mask) { return static_cast<uint8_t>(v | mask); };
     switch (address) {
         case 0xFF10: return orMask(m_ch1.nr0, 0x80);
         case 0xFF11: return orMask(m_ch1.nr1, 0x3F);
@@ -530,9 +526,7 @@ uint8_t APU::readRegister(uint16_t address) const {
         }
         default:
             if (address >= 0xFF30 && address <= 0xFF3F) {
-                if (m_ch3.enabled) {
-                    return m_ch3.waveRam[m_ch3.position >> 1];
-                }
+                if (m_ch3.enabled) return m_ch3.waveRam[m_ch3.position >> 1];
                 return m_ch3.waveRam[address - 0xFF30];
             }
             return 0xFF;
@@ -540,36 +534,23 @@ uint8_t APU::readRegister(uint16_t address) const {
 }
 
 void APU::mixSample() {
-    // Mix linear positivo (0..15 por canal) → NR51 pan → NR50 volume →
-    // high-pass (remove DC) → ganho master com soft-clip.
-    // Antes: subtraía “centro” de 4 canais (30) mesmo com 1–2 ativos → DC
-    // enorme, high-pass “brigando” e clipping → som estourado/estranho.
-
-    auto emit = [&](double sampleL, double sampleR) {
-        auto toI16 = [](double x) -> int16_t {
-            x = std::clamp(x, -1.0, 1.0);
-            return static_cast<int16_t>(x * 28000.0);
-        };
-        m_sampleBuffer.push_back(toI16(sampleL));
-        m_sampleBuffer.push_back(toI16(sampleR));
-    };
+    // DAC unipolar 0..15 por canal → pan NR51 → volume NR50 → high-pass → ganho linear.
+    // Sem tanh (comprimia e “sujava”) e sem centro artificial de 4 canais.
 
     if (!m_outputEnabled || !(m_nr52 & 0x80)) {
-        // Decai capacitores e silêncio
         const double outL = 0.0 - m_capLeft;
         const double outR = 0.0 - m_capRight;
         m_capLeft = 0.0 - outL * kCapCharge;
         m_capRight = 0.0 - outR * kCapCharge;
-        emit(0.0, 0.0);
+        pushSample(0, 0);
         return;
     }
 
-    const uint8_t s1 = m_ch1.digitalOutput();
-    const uint8_t s2 = m_ch2.digitalOutput();
-    const uint8_t s3 = m_ch3.digitalOutput();
-    const uint8_t s4 = m_ch4.digitalOutput();
+    const int s1 = m_ch1.digitalOutput();
+    const int s2 = m_ch2.digitalOutput();
+    const int s3 = m_ch3.digitalOutput();
+    const int s4 = m_ch4.digitalOutput();
 
-    // Soma digital 0..15 por canal (máx 60 se 4 canais no topo)
     int left = 0;
     int right = 0;
     if (m_nr51 & 0x10) left += s1;
@@ -581,50 +562,36 @@ void APU::mixSample() {
     if (m_nr51 & 0x80) left += s4;
     if (m_nr51 & 0x08) right += s4;
 
-    // NR50: volume 0..7 multiplica (n+1). VIN ignorado.
-    // Faixa pós-volume: 0 .. 60*8 = 480
+    // NR50: (n+1)/8 — faixa 0..15*4*8 = 480
     const int leftVol = ((m_nr50 >> 4) & 0x07) + 1;
     const int rightVol = (m_nr50 & 0x07) + 1;
-    const double rawL = static_cast<double>(left * leftVol);
-    const double rawR = static_cast<double>(right * rightVol);
 
-    // Normaliza para ~[0, 1] com headroom (não assume DC artificial)
-    constexpr double kNorm = 1.0 / 480.0;
-    const double inL = rawL * kNorm;
-    const double inR = rawR * kNorm;
+    // Escala para ~[0, 1]: um canal a volume 15 e NR50=7 ≈ 15*8/480 = 0.25
+    constexpr double kScale = 1.0 / 480.0;
+    const double inL = static_cast<double>(left * leftVol) * kScale;
+    const double inR = static_cast<double>(right * rightVol) * kScale;
 
-    // High-pass capacitor (remove DC do DAC)
-    // out = in - cap; cap = in - out * charge  ⇔  cap += (in - cap) * (1-charge)? 
-    // Forma clássica de emuladores GB:
-    const double outL = inL - m_capLeft;
-    const double outR = inR - m_capRight;
-    m_capLeft = inL - outL * kCapCharge;
-    m_capRight = inR - outR * kCapCharge;
+    // High-pass (DC block) — essencial para square unipolar
+    const double hpL = inL - m_capLeft;
+    const double hpR = inR - m_capRight;
+    m_capLeft = inL - hpL * kCapCharge;
+    m_capRight = inR - hpR * kCapCharge;
 
-    // Soft-clip (tanh) evita hard clipping “estourado”
-    const double g = static_cast<double>(m_volume) * 1.8; // recupera nível sem estourar
-    const double sampleL = std::tanh(outL * g);
-    const double sampleR = std::tanh(outR * g);
+    // Ganho master linear (sem soft-clip agressivo)
+    // 0.45 * ~0.5 peak típico de música ≈ confortável
+    const double g = static_cast<double>(m_volume) * 2.2;
+    double outL = std::clamp(hpL * g, -1.0, 1.0);
+    double outR = std::clamp(hpR * g, -1.0, 1.0);
 
-    emit(sampleL, sampleR);
-
-    // Limita backlog (~0.25 s)
-    const size_t maxFrames = static_cast<size_t>(kSampleRate / 4);
-    if (m_sampleBuffer.size() > maxFrames * 2) {
-        const size_t drop = m_sampleBuffer.size() - maxFrames * 2;
-        m_sampleBuffer.erase(m_sampleBuffer.begin(),
-                             m_sampleBuffer.begin() + static_cast<std::ptrdiff_t>(drop));
-    }
+    pushSample(static_cast<int16_t>(outL * 24000.0),
+               static_cast<int16_t>(outR * 24000.0));
 }
 
 void APU::tickTCycle(uint16_t divBefore, uint16_t divAfter) {
-    // Frame sequencer no falling-edge do bit 12 do DIV
     if ((m_nr52 & 0x80) != 0) {
         const bool oldBit = (divBefore & kDivFsBit) != 0;
         const bool newBit = (divAfter & kDivFsBit) != 0;
-        if (oldBit && !newBit) {
-            clockFrameSequencer();
-        }
+        if (oldBit && !newBit) clockFrameSequencer();
 
         m_ch1.tickTimer();
         m_ch2.tickTimer();
@@ -640,20 +607,21 @@ void APU::tickTCycle(uint16_t divBefore, uint16_t divAfter) {
 }
 
 void APU::onDivReset(uint16_t divBefore) {
-    // Escrita em FF04 zera DIV: falling edge se bit 12 estava setado
     if ((m_nr52 & 0x80) != 0 && (divBefore & kDivFsBit) != 0) {
         clockFrameSequencer();
     }
 }
 
 size_t APU::popSamples(int16_t* out, size_t maxFrames) {
-    const size_t availableFrames = m_sampleBuffer.size() / 2;
-    const size_t frames = std::min(availableFrames, maxFrames);
-    if (frames == 0) return 0;
-    std::memcpy(out, m_sampleBuffer.data(), frames * 2 * sizeof(int16_t));
-    m_sampleBuffer.erase(m_sampleBuffer.begin(),
-                         m_sampleBuffer.begin() + static_cast<std::ptrdiff_t>(frames * 2));
-    return frames;
+    const size_t n = std::min(maxFrames, m_ringFrames);
+    for (size_t f = 0; f < n; ++f) {
+        const size_t i = m_ringRead * 2;
+        out[f * 2] = m_ring[i];
+        out[f * 2 + 1] = m_ring[i + 1];
+        m_ringRead = (m_ringRead + 1) % kRingCapacity;
+    }
+    m_ringFrames -= n;
+    return n;
 }
 
 void APU::serialize(std::vector<uint8_t>& out) const {
@@ -669,7 +637,7 @@ void APU::serialize(std::vector<uint8_t>& out) const {
         pushBool(out, c.envelopeIncrease);
         pushBool(out, c.envelopeRunning);
         push16(out, c.frequency);
-        push16(out, c.freqTimer);
+        push32(out, c.freqTimer);
         push8(out, c.dutyStep);
         push8(out, c.nr0); push8(out, c.nr1); push8(out, c.nr2);
         push8(out, c.nr3); push8(out, c.nr4);
@@ -691,7 +659,7 @@ void APU::serialize(std::vector<uint8_t>& out) const {
     pushBool(out, m_ch3.lengthEnabled);
     push8(out, m_ch3.volumeCode);
     push16(out, m_ch3.frequency);
-    push16(out, m_ch3.freqTimer);
+    push32(out, m_ch3.freqTimer);
     push8(out, m_ch3.position);
     out.insert(out.end(), m_ch3.waveRam, m_ch3.waveRam + 16);
     push8(out, m_ch3.nr0); push8(out, m_ch3.nr1); push8(out, m_ch3.nr2);
@@ -711,7 +679,7 @@ void APU::serialize(std::vector<uint8_t>& out) const {
     pushBool(out, m_ch4.widthMode);
     push8(out, m_ch4.divisorCode);
     push16(out, m_ch4.lfsr);
-    push16(out, m_ch4.freqTimer);
+    push32(out, m_ch4.freqTimer);
     push8(out, m_ch4.nr1); push8(out, m_ch4.nr2);
     push8(out, m_ch4.nr3); push8(out, m_ch4.nr4);
 
@@ -721,15 +689,11 @@ void APU::serialize(std::vector<uint8_t>& out) const {
     pushBool(out, m_outputEnabled);
     push8(out, m_frameSeqStep);
 
-    // sampleTimer as double bits
-    uint64_t st = 0;
-    static_assert(sizeof(double) == 8, "double size");
+    uint64_t st = 0, hl = 0, hr = 0;
     std::memcpy(&st, &m_sampleTimer, 8);
-    for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((st >> (i * 8)) & 0xFF));
-
-    uint64_t hl = 0, hr = 0;
     std::memcpy(&hl, &m_capLeft, 8);
     std::memcpy(&hr, &m_capRight, 8);
+    for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((st >> (i * 8)) & 0xFF));
     for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((hl >> (i * 8)) & 0xFF));
     for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((hr >> (i * 8)) & 0xFF));
 }
@@ -747,7 +711,7 @@ bool APU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
         if (!readBool(ptr, end, c.envelopeIncrease)) return false;
         if (!readBool(ptr, end, c.envelopeRunning)) return false;
         if (!read16(ptr, end, c.frequency)) return false;
-        if (!read16(ptr, end, c.freqTimer)) return false;
+        if (!read32(ptr, end, c.freqTimer)) return false;
         if (!read8(ptr, end, c.dutyStep)) return false;
         if (!read8(ptr, end, c.nr0) || !read8(ptr, end, c.nr1) || !read8(ptr, end, c.nr2)) return false;
         if (!read8(ptr, end, c.nr3) || !read8(ptr, end, c.nr4)) return false;
@@ -771,7 +735,7 @@ bool APU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
     if (!readBool(ptr, end, m_ch3.lengthEnabled)) return false;
     if (!read8(ptr, end, m_ch3.volumeCode)) return false;
     if (!read16(ptr, end, m_ch3.frequency)) return false;
-    if (!read16(ptr, end, m_ch3.freqTimer)) return false;
+    if (!read32(ptr, end, m_ch3.freqTimer)) return false;
     if (!read8(ptr, end, m_ch3.position)) return false;
     if (end - ptr < 16) return false;
     std::memcpy(m_ch3.waveRam, ptr, 16);
@@ -793,7 +757,7 @@ bool APU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
     if (!readBool(ptr, end, m_ch4.widthMode)) return false;
     if (!read8(ptr, end, m_ch4.divisorCode)) return false;
     if (!read16(ptr, end, m_ch4.lfsr)) return false;
-    if (!read16(ptr, end, m_ch4.freqTimer)) return false;
+    if (!read32(ptr, end, m_ch4.freqTimer)) return false;
     if (!read8(ptr, end, m_ch4.nr1) || !read8(ptr, end, m_ch4.nr2)) return false;
     if (!read8(ptr, end, m_ch4.nr3) || !read8(ptr, end, m_ch4.nr4)) return false;
 
@@ -813,6 +777,6 @@ bool APU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
     std::memcpy(&m_capLeft, &hl, 8);
     std::memcpy(&m_capRight, &hr, 8);
 
-    m_sampleBuffer.clear();
+    clearSampleBuffer();
     return true;
 }

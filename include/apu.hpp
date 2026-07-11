@@ -3,8 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-// APU DMG fiel: 4 canais, frame sequencer no falling-edge do bit 12 do DIV,
-// length/envelope/sweep, DAC, pan/volume NR50/NR51, high-pass e buffer 44.1 kHz.
+// APU DMG: 4 canais, frame sequencer (DIV bit 12), DAC, pan/volume, high-pass.
 class APU {
 public:
     APU();
@@ -13,19 +12,16 @@ public:
     void writeRegister(uint16_t address, uint8_t value);
     uint8_t readRegister(uint16_t address) const;
 
-    // Um T-cycle: edge do DIV (FS) + timers de canal + geração de sample.
     void tickTCycle(uint16_t divBefore, uint16_t divAfter);
-
-    // Escrita em FF04 (DIV=0): pode gerar falling-edge do bit 12.
     void onDivReset(uint16_t divBefore);
 
     size_t popSamples(int16_t* out, size_t maxFrames);
-    size_t samplesAvailable() const { return m_sampleBuffer.size() / 2; }
-    void clearSampleBuffer() { m_sampleBuffer.clear(); }
+    size_t samplesAvailable() const;
+    void clearSampleBuffer();
 
     void setEnabled(bool enabled) { m_outputEnabled = enabled; }
     bool enabled() const { return m_outputEnabled; }
-    void setVolume(float volume) { m_volume = volume; }
+    void setVolume(float volume);
 
     bool powerOn() const { return (m_nr52 & 0x80) != 0; }
 
@@ -47,7 +43,7 @@ private:
         bool envelopeIncrease = false;
         bool envelopeRunning = false;
         uint16_t frequency = 0;
-        uint16_t freqTimer = 0;
+        uint32_t freqTimer = 0;
         uint8_t dutyStep = 0;
         uint8_t nr0 = 0, nr1 = 0, nr2 = 0, nr3 = 0, nr4 = 0;
 
@@ -65,9 +61,10 @@ private:
         void clockEnvelope();
         void clockSweep();
         uint16_t calcSweep() const;
+        // Nível digital 0..15 (0 se canal/DAC off).
         uint8_t digitalOutput() const;
         void tickTimer();
-        uint16_t period() const;
+        uint32_t period() const;
     };
 
     struct WaveChannel {
@@ -77,7 +74,7 @@ private:
         bool lengthEnabled = false;
         uint8_t volumeCode = 0;
         uint16_t frequency = 0;
-        uint16_t freqTimer = 0;
+        uint32_t freqTimer = 0;
         uint8_t position = 0;
         uint8_t waveRam[16]{};
         uint8_t nr0 = 0, nr1 = 0, nr2 = 0, nr3 = 0, nr4 = 0;
@@ -87,7 +84,7 @@ private:
         void clockLength();
         uint8_t digitalOutput() const;
         void tickTimer();
-        uint16_t period() const;
+        uint32_t period() const;
     };
 
     struct NoiseChannel {
@@ -104,7 +101,7 @@ private:
         bool widthMode = false;
         uint8_t divisorCode = 0;
         uint16_t lfsr = 0x7FFF;
-        uint16_t freqTimer = 0;
+        uint32_t freqTimer = 0; // 32-bit: shift alto não estoura
         uint8_t nr1 = 0, nr2 = 0, nr3 = 0, nr4 = 0;
 
         void trigger();
@@ -112,7 +109,7 @@ private:
         void clockEnvelope();
         uint8_t digitalOutput() const;
         void tickTimer();
-        uint16_t period() const;
+        uint32_t period() const;
     };
 
     void clockFrameSequencer();
@@ -122,6 +119,7 @@ private:
     void mixSample();
     void powerOff();
     void updateNr52Status();
+    void pushSample(int16_t l, int16_t r);
 
     SquareChannel m_ch1;
     SquareChannel m_ch2;
@@ -132,22 +130,24 @@ private:
     uint8_t m_nr51 = 0xF3;
     uint8_t m_nr52 = 0xF1;
 
-    bool m_outputEnabled = true; // mute do host (não desliga hardware)
-    // Ganho master conservador (headroom para 4 canais + NR50).
-    float m_volume = 0.35f;
+    bool m_outputEnabled = true;
+    float m_volume = 0.45f;
 
     uint8_t m_frameSeqStep = 0;
 
-    // Sample generation: 4194304 / 44100 ≈ 95.108
     double m_sampleTimer = 0.0;
     static constexpr double kCyclesPerSample = 4194304.0 / kSampleRate;
 
-    // High-pass (capacitor) — remove DC do DAC (estilo SameBoy/Gambatte)
+    // High-pass por canal estéreo (remove DC do DAC unipolar).
     double m_capLeft = 0.0;
     double m_capRight = 0.0;
-    // ~40 Hz @ 44100 Hz: chargeFactor = exp(-0.999 * 2*pi*40/44100) ≈ 0.994
-    // Valores próximos de 1 = corte mais grave; 0.996–0.999 são comuns.
-    static constexpr double kCapCharge = 0.996;
+    // SameBoy ~ 0.999958 @ 44100 Hz (grave bem baixo, menos “soco” artificial).
+    static constexpr double kCapCharge = 0.999958;
 
-    std::vector<int16_t> m_sampleBuffer;
+    // Ring buffer de samples intercalados L,R
+    static constexpr size_t kRingCapacity = 44100; // frames (~1s)
+    std::vector<int16_t> m_ring; // size = kRingCapacity * 2
+    size_t m_ringRead = 0;
+    size_t m_ringWrite = 0;
+    size_t m_ringFrames = 0;
 };
