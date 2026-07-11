@@ -2,16 +2,25 @@
 
 #include "mmu.hpp"
 #include <cstdint>
+#include <vector>
 
+// Timer DMG baseado em falling-edge de bits do contador DIV de 16 bits.
 class Timer {
 public:
     Timer();
     ~Timer() = default;
 
-    // Avança o estado dos timers com base nos M-cycles executados pela CPU
+    void reset();
     void tick(uint8_t mCycles, MMU& mmu);
 
+    void serialize(std::vector<uint8_t>& out) const;
+    bool deserialize(const uint8_t*& ptr, const uint8_t* end);
+
 private:
-    uint16_t m_divCounter;      // Contador interno de 16 bits para DIV (incrementado a cada dot)
-    uint32_t m_timaAccumulator; // Acumulador de M-cycles para controle de TIMA
+    // Delay de reload do TIMA após overflow (em T-cycles). -1 = inativo.
+    int m_timaReloadDelay = -1;
+    uint8_t m_timaReloadValue = 0;
+
+    static int tacBitIndex(uint8_t tac);
+    void tickTCycle(MMU& mmu);
 };

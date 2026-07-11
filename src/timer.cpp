@@ -1,45 +1,86 @@
 #include "timer.hpp"
 
-Timer::Timer() : m_divCounter(0), m_timaAccumulator(0) {}
+Timer::Timer() {
+    reset();
+}
+
+void Timer::reset() {
+    m_timaReloadDelay = -1;
+    m_timaReloadValue = 0;
+}
+
+int Timer::tacBitIndex(uint8_t tac) {
+    // Bits do contador interno de 16 bits que geram falling-edge do TIMA:
+    // 00: bit 9 (4096 Hz), 01: bit 3 (262144 Hz), 10: bit 5 (65536 Hz), 11: bit 7 (16384 Hz)
+    switch (tac & 0x03) {
+        case 0: return 9;
+        case 1: return 3;
+        case 2: return 5;
+        default: return 7;
+    }
+}
+
+void Timer::tickTCycle(MMU& mmu) {
+    // Reload delay do TIMA (4 T-cycles após overflow)
+    if (m_timaReloadDelay >= 0) {
+        m_timaReloadDelay--;
+        if (m_timaReloadDelay == 0) {
+            mmu.io()[0x05] = m_timaReloadValue;
+            mmu.io()[0x0F] |= 0x04; // Timer interrupt
+            m_timaReloadDelay = -1;
+        } else if (m_timaReloadDelay > 0) {
+            // Durante o delay, TIMA fica em 0
+            mmu.io()[0x05] = 0;
+        }
+    }
+
+    uint16_t& div = mmu.divCounter();
+    const uint16_t oldDiv = div;
+    div = static_cast<uint16_t>(div + 1);
+    mmu.setDivHigh();
+
+    const uint8_t tac = mmu.io()[0x07];
+    if ((tac & 0x04) == 0) {
+        return;
+    }
+
+    const int bit = tacBitIndex(tac);
+    const bool oldBit = (oldDiv & (1u << bit)) != 0;
+    const bool newBit = (div & (1u << bit)) != 0;
+
+    // Falling edge: 1 -> 0
+    if (oldBit && !newBit) {
+        uint8_t tima = mmu.io()[0x05];
+        if (tima == 0xFF) {
+            // Overflow: TIMA = 0 por 4 T-cycles, depois TMA + IRQ
+            mmu.io()[0x05] = 0;
+            m_timaReloadValue = mmu.io()[0x06];
+            m_timaReloadDelay = 4;
+        } else {
+            mmu.io()[0x05] = static_cast<uint8_t>(tima + 1);
+        }
+    }
+}
 
 void Timer::tick(uint8_t mCycles, MMU& mmu) {
-    // 1. Atualiza o registrador divisor DIV (roda sempre a 16384Hz)
-    // 1 M-cycle equivale a 4 dots (ticks do clock principal)
-    mmu.tickDIV(mCycles * 4);
-
-    // 2. Atualiza o contador de timer TIMA se ativado em TAC
-    uint8_t tac = mmu.readByte(0xFF07);
-    bool timerEnabled = (tac & 0x04) != 0;
-
-    if (timerEnabled) {
-        // Mapeamento de frequência selecionada em TAC bits 0-1 para M-cycles por tick:
-        // 00: 4096 Hz -> 256 M-cycles
-        // 01: 262144 Hz -> 4 M-cycles
-        // 10: 65536 Hz -> 16 M-cycles
-        // 11: 16384 Hz -> 64 M-cycles
-        const uint16_t cyclesPerTick[4] = {256, 4, 16, 64};
-        uint16_t limit = cyclesPerTick[tac & 0x03];
-
-        m_timaAccumulator += mCycles;
-
-        while (m_timaAccumulator >= limit) {
-            m_timaAccumulator -= limit;
-
-            uint8_t tima = mmu.readByte(0xFF05);
-
-            if (tima == 0xFF) {
-                // TIMA estourou: recarrega com TMA e solicita interrupção de Timer (Bit 2 de IF)
-                uint8_t tma = mmu.readByte(0xFF06);
-                mmu.writeByte(0xFF05, tma);
-
-                uint8_t ifReg = mmu.readByte(0xFF0F);
-                mmu.writeByte(0xFF0F, ifReg | 0x04);
-            } else {
-                mmu.writeByte(0xFF05, tima + 1);
-            }
-        }
-    } else {
-        // Se o timer for desativado, descarta ciclos acumulados parciais
-        m_timaAccumulator = 0;
+    const uint32_t tCycles = static_cast<uint32_t>(mCycles) * 4u;
+    for (uint32_t i = 0; i < tCycles; ++i) {
+        tickTCycle(mmu);
     }
+}
+
+void Timer::serialize(std::vector<uint8_t>& out) const {
+    out.push_back(static_cast<uint8_t>(m_timaReloadDelay & 0xFF));
+    out.push_back(static_cast<uint8_t>((m_timaReloadDelay >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((m_timaReloadDelay >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((m_timaReloadDelay >> 24) & 0xFF));
+    out.push_back(m_timaReloadValue);
+}
+
+bool Timer::deserialize(const uint8_t*& ptr, const uint8_t* end) {
+    if (end - ptr < 5) return false;
+    m_timaReloadDelay = static_cast<int>(ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24));
+    m_timaReloadValue = ptr[4];
+    ptr += 5;
+    return true;
 }
