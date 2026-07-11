@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(gb_emulator VERSION 0.3.0 LANGUAGES CXX)
+project(gb_emulator VERSION 0.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,6 +72,7 @@ set(GB_SOURCES
   src/timer.cpp
   src/cartridge.cpp
   src/apu.cpp
+  src/serial.cpp
   src/emulator.cpp
 )
 
