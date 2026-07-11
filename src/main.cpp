@@ -1,10 +1,11 @@
+#include "debug_ui.hpp"
 #include "emulator.hpp"
 #include "raylib.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -145,7 +146,8 @@ static void printUsage(const char* argv0) {
         << "  M               Mute\n"
         << "  1/2             Velocidade -/+\n"
         << "  F5/F9           Save/Load state\n"
-        << "  F1              Salvar SRAM\n";
+        << "  F1              Salvar SRAM\n"
+        << "  F12             Mostrar/ocultar sidebar de debug\n";
 }
 
 int main(int argc, char** argv) {
@@ -195,69 +197,102 @@ int main(int argc, char** argv) {
 
     const int SCREEN_WIDTH = 160;
     const int SCREEN_HEIGHT = 144;
-    const int SIDEBAR_WIDTH = 320;
+    // Sidebar de debug à direita (~392px) + margem
+    const int UI_SIDEBAR = 400;
+    const int UI_MENUBAR = 28;
 
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(SCREEN_WIDTH * scale + SIDEBAR_WIDTH, SCREEN_HEIGHT * scale,
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
+    InitWindow(SCREEN_WIDTH * scale + UI_SIDEBAR,
+               std::max(SCREEN_HEIGHT * scale + UI_MENUBAR, 640),
                TextFormat("GB DMG Emulator - %s", emu.cart().title().c_str()));
     SetTargetFPS(60);
+    SetExitKey(KEY_NULL); // Esc fica livre para ImGui / não fecha a janela
 
     InitAudioDevice();
-    SetAudioStreamBufferSizeDefault(1024);
+    // Buffer do stream = frames que UpdateAudioStream pode escrever por vez.
+    // Antes: buffer 1024 + write de 1470 frames → spam de WARNING STREAM.
+    constexpr int kAudioBufferFrames = 1024;
+    SetAudioStreamBufferSizeDefault(kAudioBufferFrames);
     AudioStream audioStream = LoadAudioStream(APU::kSampleRate, 16, 2);
     PlayAudioStream(audioStream);
-    std::vector<int16_t> audioScratch(APU::kSampleRate); // frames * 2 cabem com folga parcial
+    std::vector<int16_t> audioScratch(static_cast<size_t>(kAudioBufferFrames) * 2u);
 
     Image emptyImage = GenImageColor(SCREEN_WIDTH, SCREEN_HEIGHT, BLANK);
     Texture2D screenTexture = LoadTextureFromImage(emptyImage);
     UnloadImage(emptyImage);
     SetTextureFilter(screenTexture, TEXTURE_FILTER_POINT);
 
-    std::cout << "Emulador iniciado. P=pause R=reset M=mute F5/F9=state F1=save SRAM\n";
+    DebugUi_Init();
+    DebugUiState uiState;
+    DebugUi_SetStatus(uiState, "Sidebar pronta (F12 mostra/oculta)");
+
+    std::cout << "Emulador iniciado com debug ImGui. F12=sidebar P=pause R=reset\n";
 
     double frameAccumulator = 0.0;
 
     while (!WindowShouldClose()) {
-        // --- Input ---
-        const bool keyUp = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
-        const bool keyDown = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
-        const bool keyLeft = IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT);
-        const bool keyRight = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT);
-        const bool keyA = IsKeyDown(KEY_K) || IsKeyDown(KEY_Z);
-        const bool keyB = IsKeyDown(KEY_J) || IsKeyDown(KEY_X);
-        const bool keySelect = IsKeyDown(KEY_BACKSPACE) || IsKeyDown(KEY_SPACE);
-        const bool keyStart = IsKeyDown(KEY_ENTER);
+        const bool uiCapturesKeyboard = DebugUi_WantCaptureKeyboard();
 
-        uint8_t directions = 0x0F;
-        if (keyRight) directions &= ~0x01;
-        if (keyLeft) directions &= ~0x02;
-        if (keyUp) directions &= ~0x04;
-        if (keyDown) directions &= ~0x08;
+        // --- Input (joypad sempre; hotkeys só se ImGui não capturar teclado) ---
+        DebugUiInput pad{};
+        pad.keyUp = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
+        pad.keyDown = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
+        pad.keyLeft = IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT);
+        pad.keyRight = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT);
+        pad.keyA = IsKeyDown(KEY_K) || IsKeyDown(KEY_Z);
+        pad.keyB = IsKeyDown(KEY_J) || IsKeyDown(KEY_X);
+        pad.keySelect = IsKeyDown(KEY_BACKSPACE) || IsKeyDown(KEY_SPACE);
+        pad.keyStart = IsKeyDown(KEY_ENTER);
 
-        uint8_t actions = 0x0F;
-        if (keyA) actions &= ~0x01;
-        if (keyB) actions &= ~0x02;
-        if (keySelect) actions &= ~0x04;
-        if (keyStart) actions &= ~0x08;
-        emu.setJoypad(directions, actions);
+        // Enquanto digita no ImGui, não injeta joypad de teclado
+        if (!uiCapturesKeyboard) {
+            uint8_t directions = 0x0F;
+            if (pad.keyRight) directions &= ~0x01;
+            if (pad.keyLeft) directions &= ~0x02;
+            if (pad.keyUp) directions &= ~0x04;
+            if (pad.keyDown) directions &= ~0x08;
 
-        if (IsKeyPressed(KEY_P)) emu.togglePause();
-        if (IsKeyPressed(KEY_R)) {
-            emu.reset();
-            emu.loadBattery();
+            uint8_t actions = 0x0F;
+            if (pad.keyA) actions &= ~0x01;
+            if (pad.keyB) actions &= ~0x02;
+            if (pad.keySelect) actions &= ~0x04;
+            if (pad.keyStart) actions &= ~0x08;
+            emu.setJoypad(directions, actions);
+        } else {
+            emu.setJoypad(0x0F, 0x0F);
         }
-        if (IsKeyPressed(KEY_M)) emu.setMuted(!emu.muted());
-        if (IsKeyPressed(KEY_ONE)) emu.setSpeed(emu.speed() * 0.5f);
-        if (IsKeyPressed(KEY_TWO)) emu.setSpeed(emu.speed() * 2.0f);
-        if (IsKeyPressed(KEY_F5)) {
-            const std::string st = emu.cart().defaultSavePath() + ".state";
-            if (emu.saveState(st)) std::cout << "State salvo: " << st << "\n";
+
+        if (!uiCapturesKeyboard) {
+            if (IsKeyPressed(KEY_P)) emu.togglePause();
+            if (IsKeyPressed(KEY_R)) {
+                emu.reset();
+                emu.loadBattery();
+                DebugUi_SetStatus(uiState, "Reset + battery reload");
+            }
+            if (IsKeyPressed(KEY_M)) {
+                emu.setMuted(!emu.muted());
+                DebugUi_SetStatus(uiState, emu.muted() ? "Muted" : "Unmuted");
+            }
+            if (IsKeyPressed(KEY_ONE)) emu.setSpeed(emu.speed() * 0.5f);
+            if (IsKeyPressed(KEY_TWO)) emu.setSpeed(emu.speed() * 2.0f);
+            if (IsKeyPressed(KEY_F5)) {
+                const std::string st = emu.cart().defaultSavePath() + ".state";
+                if (emu.saveState(st)) DebugUi_SetStatus(uiState, "State salvo: " + st);
+            }
+            if (IsKeyPressed(KEY_F9)) {
+                const std::string st = emu.cart().defaultSavePath() + ".state";
+                if (emu.loadState(st)) DebugUi_SetStatus(uiState, "State carregado: " + st);
+            }
+            if (IsKeyPressed(KEY_F1)) {
+                if (emu.saveBattery()) DebugUi_SetStatus(uiState, "SRAM salva");
+            }
         }
-        if (IsKeyPressed(KEY_F9)) {
-            const std::string st = emu.cart().defaultSavePath() + ".state";
-            if (emu.loadState(st)) std::cout << "State carregado: " << st << "\n";
+
+        // F12: mostra/oculta sidebar de debug
+        if (IsKeyPressed(KEY_F12)) {
+            DebugUi_ToggleSidebar(uiState);
+            DebugUi_SetStatus(uiState, uiState.showSidebar ? "Sidebar ON" : "Sidebar OFF");
         }
-        if (IsKeyPressed(KEY_F1)) emu.saveBattery();
 
         // --- Emulação: N frames por frame de host conforme speed ---
         frameAccumulator += emu.speed();
@@ -269,16 +304,15 @@ int main(int argc, char** argv) {
         }
 
         // --- Áudio ---
+        // Escreve no máximo kAudioBufferFrames por update (evita WARNING STREAM).
+        // Drena o buffer interno da APU sempre, inclusive com mute.
         if (IsAudioStreamProcessed(audioStream) && !emu.muted()) {
-            // Raylib pede reposição quando o buffer interno esvaziou; enviamos ~1/30s
-            const size_t wantFrames = APU::kSampleRate / 30;
-            if (audioScratch.size() < wantFrames * 2) audioScratch.resize(wantFrames * 2);
-            size_t got = emu.popAudio(audioScratch.data(), wantFrames);
-            // Preenche silêncio se faltar sample (evita underrun com pause)
-            for (size_t i = got * 2; i < wantFrames * 2; ++i) audioScratch[i] = 0;
-            UpdateAudioStream(audioStream, audioScratch.data(), static_cast<int>(wantFrames));
-        } else if (!emu.muted()) {
-            // Drena buffer da APU mesmo se stream não pediu (evita overflow)
+            size_t got = emu.popAudio(audioScratch.data(), static_cast<size_t>(kAudioBufferFrames));
+            for (size_t i = got * 2; i < static_cast<size_t>(kAudioBufferFrames) * 2u; ++i) {
+                audioScratch[i] = 0;
+            }
+            UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
+        } else {
             int16_t discard[2048];
             while (emu.popAudio(discard, 1024) == 1024) {
             }
@@ -289,81 +323,27 @@ int main(int argc, char** argv) {
         BeginDrawing();
         ClearBackground(GetColor(0x111115FF));
 
+        // Tela GB à esquerda; sidebar ImGui fixa à direita (não sobrepõe)
+        const float menuBarH = 22.0f;
         const float drawW = static_cast<float>(SCREEN_WIDTH * scale);
         const float drawH = static_cast<float>(SCREEN_HEIGHT * scale);
+        const float gameLeft = 0.0f;
+        const float gameTop = menuBarH;
         DrawTexturePro(
             screenTexture,
             Rectangle{0, 0, static_cast<float>(SCREEN_WIDTH), static_cast<float>(SCREEN_HEIGHT)},
-            Rectangle{0, 0, drawW, drawH},
+            Rectangle{gameLeft, gameTop, drawW, drawH},
             Vector2{0, 0}, 0.0f, WHITE);
 
-        const int startX = SCREEN_WIDTH * scale + 16;
-        int y = 16;
+        DebugUi_Draw(emu, uiState, pad, static_cast<float>(GetFPS()), scale,
+                     gameLeft, gameTop, drawW, drawH);
 
-        DrawText("GB DMG EMULATOR", startX, y, 18, RAYWHITE);
-        y += 28;
-        DrawText(emu.cart().title().c_str(), startX, y, 14, YELLOW);
-        y += 22;
-        DrawLine(startX, y, startX + 280, y, GRAY);
-        y += 12;
-
-        auto line = [&](const std::string& s, Color c = LIGHTGRAY) {
-            DrawText(s.c_str(), startX, y, 14, c);
-            y += 18;
-        };
-
-        std::stringstream ss;
-        ss << std::hex << std::uppercase;
-        ss << "PC:" << emu.cpu().getRegs().pc << " SP:" << emu.cpu().getRegs().sp;
-        line(ss.str(), GREEN);
-        ss.str(""); ss.clear(); ss << std::hex << std::uppercase;
-        ss << "A:" << (int)emu.cpu().getRegs().a << " F:" << (int)emu.cpu().getRegs().f
-           << " IME:" << (emu.cpu().getIme() ? "ON" : "OFF");
-        line(ss.str());
-        ss.str(""); ss.clear(); ss << std::hex << std::uppercase;
-        ss << "BC:" << emu.cpu().getRegs().bc()
-           << " DE:" << emu.cpu().getRegs().de()
-           << " HL:" << emu.cpu().getRegs().hl();
-        line(ss.str());
-        y += 6;
-
-        ss.str(""); ss.clear(); ss << std::hex << std::uppercase;
-        ss << "IE:" << (int)emu.mmu().readByte(0xFFFF)
-           << " IF:" << (int)emu.mmu().readByte(0xFF0F)
-           << " LY:" << (int)emu.mmu().readByte(0xFF44);
-        line(ss.str());
-        ss.str(""); ss.clear(); ss << std::hex << std::uppercase;
-        ss << "LCDC:" << (int)emu.mmu().readByte(0xFF40)
-           << " STAT:" << (int)emu.mmu().readByte(0xFF41);
-        line(ss.str());
-        y += 8;
-
-        line(TextFormat("Speed: %.2fx %s %s", emu.speed(),
-                        emu.paused() ? "[PAUSED]" : "",
-                        emu.muted() ? "[MUTE]" : ""),
-             emu.paused() ? ORANGE : SKYBLUE);
-
-        y += 6;
-        line("D-Pad:", LIGHTGRAY);
-        DrawText(keyUp ? "UP" : "--", startX + 70, y - 18, 14, keyUp ? GREEN : GRAY);
-        DrawText(keyDown ? "DN" : "--", startX + 100, y - 18, 14, keyDown ? GREEN : GRAY);
-        DrawText(keyLeft ? "LT" : "--", startX + 130, y - 18, 14, keyLeft ? GREEN : GRAY);
-        DrawText(keyRight ? "RT" : "--", startX + 160, y - 18, 14, keyRight ? GREEN : GRAY);
-
-        line("Btns:", LIGHTGRAY);
-        DrawText(keyA ? "A" : "-", startX + 70, y - 18, 14, keyA ? RED : GRAY);
-        DrawText(keyB ? "B" : "-", startX + 95, y - 18, 14, keyB ? RED : GRAY);
-        DrawText(keySelect ? "SEL" : "---", startX + 120, y - 18, 14, keySelect ? ORANGE : GRAY);
-        DrawText(keyStart ? "STA" : "---", startX + 160, y - 18, 14, keyStart ? ORANGE : GRAY);
-
-        y += 10;
-        line("F5/F9 state | F1 SRAM | P R M 1 2", DARKGRAY);
-        DrawFPS(10, 10);
         EndDrawing();
     }
 
     emu.saveBattery();
 
+    DebugUi_Shutdown();
     UnloadAudioStream(audioStream);
     CloseAudioDevice();
     UnloadTexture(screenTexture);
