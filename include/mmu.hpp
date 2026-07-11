@@ -1,7 +1,10 @@
 #pragma once
 
 #include "cartridge.hpp"
+#include "serial.hpp"
+
 #include <cstdint>
+#include <string>
 #include <vector>
 
 class APU;
@@ -21,6 +24,13 @@ public:
     void reset();
     void attachCartridge(Cartridge* cart);
     void attachAPU(APU* apu);
+
+    // Boot ROM opcional (256 bytes DMG). Se carregada, mapeia 0x0000-0x00FF até FF50.
+    bool loadBootRom(const std::string& path);
+    bool loadBootRom(const std::vector<uint8_t>& data);
+    bool bootRomLoaded() const { return m_bootRomLoaded; }
+    bool bootRomActive() const { return m_bootRomActive; }
+    void enableBootRom(bool enable);
 
     uint8_t readByte(uint16_t address) const;
     void writeByte(uint16_t address, uint8_t value);
@@ -48,6 +58,9 @@ public:
 
     void applyPostBootState();
 
+    Serial& serial() { return m_serial; }
+    const Serial& serial() const { return m_serial; }
+
     uint8_t* vram() { return m_vram; }
     uint8_t* oam() { return m_oam; }
     uint8_t* io() { return m_io; }
@@ -61,6 +74,7 @@ public:
 private:
     Cartridge* m_cart = nullptr;
     APU* m_apu = nullptr;
+    Serial m_serial;
 
     uint16_t m_divCounter = 0;
     uint8_t m_vram[0x2000]{};
@@ -70,7 +84,9 @@ private:
     uint8_t m_hram[0x7F]{};
     uint8_t m_ie = 0;
 
-    bool m_bootRomActive = false; // false = pós-boot (padrão do emulador)
+    uint8_t m_bootRom[0x100]{};
+    bool m_bootRomLoaded = false;
+    bool m_bootRomActive = false;
 
     uint8_t m_joypadSelect = 0x30;
     uint8_t m_joypadDirections = 0x0F;

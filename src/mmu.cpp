@@ -2,6 +2,8 @@
 #include "apu.hpp"
 
 #include <cstring>
+#include <fstream>
+#include <iostream>
 
 MMU::MMU() {
     reset();
@@ -23,6 +25,32 @@ void MMU::reset() {
     m_dmaSource = 0;
     m_dmaIndex = 0;
     m_ppuMode = PpuAccessMode::HBlank;
+    m_serial.reset();
+}
+
+bool MMU::loadBootRom(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        std::cerr << "Falha ao abrir boot ROM: " << path << "\n";
+        return false;
+    }
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return loadBootRom(data);
+}
+
+bool MMU::loadBootRom(const std::vector<uint8_t>& data) {
+    if (data.size() < 0x100) {
+        std::cerr << "Boot ROM DMG precisa de 256 bytes (tem " << data.size() << ").\n";
+        return false;
+    }
+    std::memcpy(m_bootRom, data.data(), 0x100);
+    m_bootRomLoaded = true;
+    std::cout << "Boot ROM DMG carregada (256 bytes).\n";
+    return true;
+}
+
+void MMU::enableBootRom(bool enable) {
+    m_bootRomActive = enable && m_bootRomLoaded;
 }
 
 void MMU::attachCartridge(Cartridge* cart) {
@@ -115,6 +143,10 @@ void MMU::tickDMA(uint8_t mCycles) {
 }
 
 uint8_t MMU::readByteDirect(uint16_t address) const {
+    // Boot ROM mapeada em 0x0000-0x00FF enquanto ativa
+    if (m_bootRomActive && address <= 0x00FF) {
+        return m_bootRom[address];
+    }
     if (address <= 0x7FFF || (address >= 0xA000 && address <= 0xBFFF)) {
         if (m_cart) return m_cart->read(address);
         return 0xFF;
@@ -144,6 +176,12 @@ uint8_t MMU::readByteDirect(uint16_t address) const {
         }
         if (m_apu && address >= 0xFF10 && address <= 0xFF3F) {
             return m_apu->readRegister(address);
+        }
+        if (address == 0xFF01) {
+            return m_serial.readSB();
+        }
+        if (address == 0xFF02) {
+            return m_serial.readSC();
         }
         if (address == 0xFF04) {
             return static_cast<uint8_t>(m_divCounter >> 8);
@@ -191,6 +229,16 @@ void MMU::writeByteDirect(uint16_t address, uint8_t value) {
             m_joypadSelect = value & 0x30;
             return;
         }
+        if (address == 0xFF01) {
+            m_serial.writeSB(value);
+            m_io[0x01] = value;
+            return;
+        }
+        if (address == 0xFF02) {
+            m_serial.writeSC(value);
+            m_io[0x02] = m_serial.readSC();
+            return;
+        }
         if (address == 0xFF04) {
             // Reset DIV: falling-edge no bit 12 clocka o frame sequencer da APU;
             // TIMA também pode reagir se o bit do TAC cair.
@@ -206,6 +254,8 @@ void MMU::writeByteDirect(uint16_t address, uint8_t value) {
         }
         if (address == 0xFF50 && value != 0) {
             m_bootRomActive = false;
+            m_io[0x50] = value;
+            return;
         }
         if (m_apu && address >= 0xFF10 && address <= 0xFF3F) {
             m_apu->writeRegister(address, value);
@@ -297,6 +347,8 @@ void MMU::serialize(std::vector<uint8_t>& out) const {
     push16(m_dmaSource);
     out.push_back(m_dmaIndex);
     out.push_back(static_cast<uint8_t>(m_ppuMode));
+    out.push_back(m_bootRomActive ? 1 : 0);
+    m_serial.serialize(out);
 }
 
 bool MMU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
@@ -318,5 +370,10 @@ bool MMU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
     m_dmaSource = static_cast<uint16_t>(ptr[0] | (ptr[1] << 8)); ptr += 2;
     m_dmaIndex = *ptr++;
     m_ppuMode = static_cast<PpuAccessMode>(*ptr++);
+    // v3+: boot flag + serial
+    if (end - ptr >= 1 + 9) {
+        m_bootRomActive = (*ptr++ != 0) && m_bootRomLoaded;
+        if (!m_serial.deserialize(ptr, end)) return false;
+    }
     return true;
 }

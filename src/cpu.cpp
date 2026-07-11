@@ -7,7 +7,19 @@ CPU::CPU() {
     reset();
 }
 
-void CPU::reset() {
+void CPU::reset(bool useBootRom) {
+    m_ime = false;
+    m_imeEnablePending = false;
+    m_halted = false;
+    m_haltBug = false;
+
+    if (useBootRom) {
+        m_regs = {};
+        m_regs.pc = 0x0000;
+        m_regs.sp = 0x0000;
+        return;
+    }
+
     // Pós-boot DMG
     m_regs.a = 0x01;
     m_regs.f = 0xB0;
@@ -19,10 +31,6 @@ void CPU::reset() {
     m_regs.l = 0x4D;
     m_regs.sp = 0xFFFE;
     m_regs.pc = 0x0100;
-    m_ime = false;
-    m_imeEnablePending = false;
-    m_halted = false;
-    m_haltBug = false;
 }
 
 void CPU::setFlag(uint8_t flag, bool value) {

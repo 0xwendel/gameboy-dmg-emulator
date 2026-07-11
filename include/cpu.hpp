@@ -39,7 +39,9 @@ public:
     CPU();
     ~CPU() = default;
 
-    void reset();
+    // useBootRom=true: registradores zerados, PC=0 (boot real).
+    // useBootRom=false: estado pós-boot DMG (skip boot).
+    void reset(bool useBootRom = false);
 
     // Executa uma instrução. Retorna M-cycles gastos.
     uint8_t step(MMU& mmu);

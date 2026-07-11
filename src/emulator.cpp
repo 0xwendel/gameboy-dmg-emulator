@@ -6,7 +6,7 @@
 
 namespace {
 constexpr uint32_t kStateMagic = 0x31424745; // "EGB1"
-constexpr uint32_t kStateVersion = 2;        // v2: inclui APU
+constexpr uint32_t kStateVersion = 3;        // v3: serial + boot flag
 }
 
 Emulator::Emulator() {
@@ -16,7 +16,6 @@ Emulator::Emulator() {
 
 void Emulator::applyPostBootIO() {
     m_mmu.applyPostBootState();
-    // Sincroniza APU com registradores pós-boot
     m_apu.reset();
     m_apu.writeRegister(0xFF10, 0x80);
     m_apu.writeRegister(0xFF11, 0xBF);
@@ -36,6 +35,15 @@ void Emulator::applyPostBootIO() {
     m_apu.writeRegister(0xFF24, 0x77);
     m_apu.writeRegister(0xFF25, 0xF3);
     m_apu.writeRegister(0xFF26, 0xF1);
+}
+
+bool Emulator::loadBootRom(const std::string& path) {
+    if (!m_mmu.loadBootRom(path)) {
+        m_useBootRom = false;
+        return false;
+    }
+    m_useBootRom = true;
+    return true;
 }
 
 bool Emulator::loadRom(const std::string& path) {
@@ -61,10 +69,19 @@ void Emulator::reset() {
     m_mmu.reset();
     m_mmu.attachCartridge(&m_cart);
     m_mmu.attachAPU(&m_apu);
-    m_cpu.reset();
-    m_ppu.reset();
     m_timer.reset();
-    applyPostBootIO();
+    m_ppu.reset();
+
+    if (m_useBootRom && m_mmu.bootRomLoaded()) {
+        m_mmu.enableBootRom(true);
+        m_cpu.reset(true);
+        // Estado inicial cru: I/O zerado (boot ROM configura)
+        m_apu.reset();
+    } else {
+        m_mmu.enableBootRom(false);
+        m_cpu.reset(false);
+        applyPostBootIO();
+    }
     m_paused = false;
 }
 
@@ -79,13 +96,13 @@ void Emulator::setJoypad(uint8_t directions, uint8_t actions) {
 
 void Emulator::advancePeripherals(uint8_t mCycles) {
     m_mmu.tickDMA(mCycles);
-    // Timer e APU avançam juntos por T-cycle (frame sequencer no DIV bit 12).
     const uint32_t tCycles = static_cast<uint32_t>(mCycles) * 4u;
     for (uint32_t i = 0; i < tCycles; ++i) {
         const uint16_t divBefore = m_mmu.divCounter();
         m_timer.tickTCycle(m_mmu);
         m_apu.tickTCycle(divBefore, m_mmu.divCounter());
     }
+    m_mmu.serial().tick(tCycles, m_mmu);
     m_ppu.tick(mCycles, m_mmu);
 }
 
@@ -98,10 +115,10 @@ uint8_t Emulator::stepInstruction() {
 void Emulator::runFrame() {
     if (m_paused) return;
 
-    // Um frame DMG = 154 scanlines * 456 dots = 70224 T-cycles
-    // Usa flag da PPU (mais robusto com LCD off/on)
+    m_cart.updateRtcWallClock();
+
     int safety = 0;
-    const int maxSteps = 200000; // evita loop infinito
+    const int maxSteps = 200000;
     while (!m_ppu.isFrameReady() && safety < maxSteps) {
         stepInstruction();
         safety++;
@@ -111,8 +128,10 @@ void Emulator::runFrame() {
 bool Emulator::saveBattery() const {
     if (!m_cart.hasBattery()) return false;
     const std::string path = m_cart.defaultSavePath();
+    // Atualiza RTC antes de gravar (const_cast seguro: só relógio de parede)
+    const_cast<Cartridge&>(m_cart).updateRtcWallClock();
     if (m_cart.saveBattery(path)) {
-        std::cout << "SRAM salva em " << path << "\n";
+        std::cout << "SRAM" << (m_cart.hasRtc() ? "+RTC" : "") << " salva em " << path << "\n";
         return true;
     }
     return false;
@@ -122,7 +141,7 @@ bool Emulator::loadBattery() {
     if (!m_cart.hasBattery()) return false;
     const std::string path = m_cart.defaultSavePath();
     if (m_cart.loadBattery(path)) {
-        std::cout << "SRAM carregada de " << path << "\n";
+        std::cout << "SRAM" << (m_cart.hasRtc() ? "+RTC" : "") << " carregada de " << path << "\n";
         return true;
     }
     return false;
@@ -165,7 +184,8 @@ bool Emulator::loadState(const std::string& path) {
     };
 
     if (read32() != kStateMagic) return false;
-    if (read32() != kStateVersion) return false;
+    const uint32_t ver = read32();
+    if (ver < 2 || ver > kStateVersion) return false;
     if (!m_cpu.deserialize(ptr, end)) return false;
     if (!m_mmu.deserialize(ptr, end)) return false;
     if (!m_ppu.deserialize(ptr, end)) return false;

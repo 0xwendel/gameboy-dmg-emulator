@@ -11,13 +11,17 @@
 #include <string>
 #include <vector>
 
-// Orquestra CPU, PPU, Timer, APU e cartucho em um único passo de emulação.
+// Orquestra CPU, PPU, Timer, APU, Serial e cartucho.
 class Emulator {
 public:
     Emulator();
 
     bool loadRom(const std::string& path);
     bool loadRom(const std::vector<uint8_t>& data, const std::string& pathHint = "");
+
+    // Boot ROM DMG opcional (256 bytes). Ativa no próximo reset se carregada.
+    bool loadBootRom(const std::string& path);
+    bool bootRomEnabled() const { return m_useBootRom; }
 
     // Executa até completar um frame (~70224 T-cycles / VBlank).
     void runFrame();
@@ -28,7 +32,7 @@ public:
     void reset();
     void setJoypad(uint8_t directions, uint8_t actions);
 
-    // Bateria do cartucho
+    // Bateria do cartucho (+ RTC se houver)
     bool saveBattery() const;
     bool loadBattery();
 
@@ -46,6 +50,7 @@ public:
     PPU& ppu() { return m_ppu; }
     APU& apu() { return m_apu; }
     const Cartridge& cart() const { return m_cart; }
+    Cartridge& cart() { return m_cart; }
 
     size_t popAudio(int16_t* out, size_t maxFrames) { return m_apu.popSamples(out, maxFrames); }
     size_t audioSamplesAvailable() const { return m_apu.samplesAvailable(); }
@@ -73,6 +78,7 @@ private:
 
     bool m_paused = false;
     bool m_muted = false;
+    bool m_useBootRom = false;
     float m_speed = 1.0f;
     std::string m_romPath;
 };
