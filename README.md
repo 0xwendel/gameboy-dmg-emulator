@@ -336,8 +336,17 @@ Issues and PRs are welcome.
 
 ## License
 
-Set the repository license as you prefer (e.g. MIT).  
-Third-party dependencies (raylib, ImGui, rlImGui) keep their original licenses (typically zlib/MIT).
+This project is licensed under the **[GNU General Public License v3.0](LICENSE)** (GPL-3.0).
+
+You may redistribute and/or modify it under the terms of the GPL-3.0 as published by the Free Software Foundation.
+
+Third-party dependencies keep their original licenses (typically zlib/MIT):
+
+- [raylib](https://github.com/raysan5/raylib)
+- [Dear ImGui](https://github.com/ocornut/imgui)
+- [rlImGui](https://github.com/raylib-extras/rlImGui)
+
+See the [LICENSE](LICENSE) file for the full text.
 
 ---
 
