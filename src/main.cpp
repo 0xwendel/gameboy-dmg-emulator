@@ -3,13 +3,24 @@
 #include "raylib.h"
 
 #include <algorithm>
-#include <cassert>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
 
 // -------------------- Testes unitários headless --------------------
+
+// assert() some em Release (NDEBUG); falhas reais precisam abortar de verdade.
+#define REQUIRE(cond)                                                          \
+    do {                                                                       \
+        if (!(cond)) {                                                         \
+            std::cerr << "REQUIRE falhou: " << #cond << "  (" << __FILE__      \
+                      << ":" << __LINE__ << ")\n";                             \
+            std::abort();                                                      \
+        }                                                                      \
+    } while (0)
 
 static void testMBC1() {
     std::cout << "Executando testes unitarios do MBC1...\n";
@@ -23,20 +34,20 @@ static void testMBC1() {
     mockROM[0x0147] = 0x01; // MBC1
     mockROM[0x0149] = 0x02; // 8KB RAM
 
-    assert(cart.load(mockROM));
-    assert(cart.read(0x4000) == 0x11);
+    REQUIRE(cart.load(mockROM));
+    REQUIRE(cart.read(0x4000) == 0x11);
     cart.write(0x2000, 2);
-    assert(cart.read(0x4000) == 0x22);
+    REQUIRE(cart.read(0x4000) == 0x22);
     cart.write(0x2000, 3);
-    assert(cart.read(0x4000) == 0x33);
+    REQUIRE(cart.read(0x4000) == 0x33);
     cart.write(0x2000, 0);
-    assert(cart.read(0x4000) == 0x11);
-    assert(cart.read(0xA000) == 0xFF);
+    REQUIRE(cart.read(0x4000) == 0x11);
+    REQUIRE(cart.read(0xA000) == 0xFF);
     cart.write(0x0000, 0x0A);
     cart.write(0xA000, 0x77);
-    assert(cart.read(0xA000) == 0x77);
+    REQUIRE(cart.read(0xA000) == 0x77);
     cart.write(0x0000, 0x00);
-    assert(cart.read(0xA000) == 0xFF);
+    REQUIRE(cart.read(0xA000) == 0xFF);
     std::cout << "Todos os testes unitarios do MBC1 passaram!\n\n";
 }
 
@@ -52,7 +63,7 @@ static void testTimersAndInterrupts() {
     mockROM[0x0051] = 0xC9; // RET
     mockROM[0x0147] = 0x00;
 
-    assert(emu.loadRom(mockROM, ""));
+    REQUIRE(emu.loadRom(mockROM, ""));
     // Programa de teste: TIMA quase no overflow, TAC enable 262144 Hz (4 M-cycles)
     emu.mmu().io()[0x05] = 0xFE;
     emu.mmu().io()[0x06] = 0xAA;
@@ -83,20 +94,20 @@ static void testJoypad() {
     std::cout << "Executando testes unitarios do Joypad...\n";
     MMU mmu;
     mmu.reset();
-    assert((mmu.readByte(0xFF00) & 0x0F) == 0x0F);
+    REQUIRE((mmu.readByte(0xFF00) & 0x0F) == 0x0F);
 
     mmu.setJoypadState(0x0C, 0x06);
     mmu.writeByte(0xFF00, 0x20);
-    assert(mmu.readByte(0xFF00) == 0xEC);
+    REQUIRE(mmu.readByte(0xFF00) == 0xEC);
     mmu.writeByte(0xFF00, 0x10);
-    assert(mmu.readByte(0xFF00) == 0xD6);
+    REQUIRE(mmu.readByte(0xFF00) == 0xD6);
     mmu.writeByte(0xFF00, 0x00);
-    assert(mmu.readByte(0xFF00) == 0xC4);
+    REQUIRE(mmu.readByte(0xFF00) == 0xC4);
 
     mmu.writeByte(0xFF00, 0x20);
     mmu.writeByte(0xFF0F, 0x00);
     mmu.setJoypadState(0x08, 0x06);
-    assert((mmu.readByte(0xFF0F) & 0x10) != 0);
+    REQUIRE((mmu.readByte(0xFF0F) & 0x10) != 0);
     std::cout << "Todos os testes unitarios do Joypad passaram!\n\n";
 }
 
@@ -109,13 +120,73 @@ static void testEIDelay() {
     rom[0x101] = 0x00;
     rom[0x102] = 0x00;
     rom[0x0147] = 0x00;
-    assert(emu.loadRom(rom, ""));
-    assert(emu.cpu().getIme() == false);
+    REQUIRE(emu.loadRom(rom, ""));
+    REQUIRE(emu.cpu().getIme() == false);
     emu.stepInstruction(); // EI
-    assert(emu.cpu().getIme() == false); // ainda off
+    REQUIRE(emu.cpu().getIme() == false); // ainda off
     emu.stepInstruction(); // NOP — IME liga depois desta
-    assert(emu.cpu().getIme() == true);
+    REQUIRE(emu.cpu().getIme() == true);
     std::cout << "EI delay ok.\n\n";
+}
+
+static void testAPU() {
+    std::cout << "Executando testes unitarios da APU...\n";
+
+    Emulator emu;
+    std::vector<uint8_t> rom(0x200, 0x00);
+    rom[0x0100] = 0x00; // NOP
+    rom[0x0147] = 0x00;
+    REQUIRE(emu.loadRom(rom, ""));
+
+    // Power on + volume/pan
+    emu.mmu().writeByte(0xFF26, 0x80);
+    emu.mmu().writeByte(0xFF24, 0x77);
+    emu.mmu().writeByte(0xFF25, 0xFF);
+
+    // CH2 square: duty 50%, max volume, no envelope, trigger
+    emu.mmu().writeByte(0xFF16, 0x80);       // duty 50%, length
+    emu.mmu().writeByte(0xFF17, 0xF0);       // vol 15, env period 0
+    emu.mmu().writeByte(0xFF18, 0x00);       // freq low
+    emu.mmu().writeByte(0xFF19, 0x87);       // freq high + trigger
+
+    REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) != 0); // CH2 on
+
+    // Gera ~2 frames de samples
+    for (int i = 0; i < 2000; ++i) emu.stepInstruction();
+
+    REQUIRE(emu.audioSamplesAvailable() > 0);
+
+    int16_t buf[4096];
+    const size_t got = emu.popAudio(buf, 2048);
+    REQUIRE(got > 0);
+
+    // Deve haver energia no sinal (não silêncio total)
+    int64_t energy = 0;
+    for (size_t i = 0; i < got * 2; ++i) {
+        energy += std::abs(static_cast<int>(buf[i]));
+    }
+    REQUIRE(energy > 0);
+
+    // Power off silencia canais
+    emu.mmu().writeByte(0xFF26, 0x00);
+    REQUIRE((emu.mmu().readByte(0xFF26) & 0x0F) == 0);
+
+    // Frame sequencer: length counter com enable deve desligar canal
+    emu.mmu().writeByte(0xFF26, 0x80);
+    emu.mmu().writeByte(0xFF24, 0x77);
+    emu.mmu().writeByte(0xFF25, 0xFF);
+    emu.mmu().writeByte(0xFF16, 0x3F); // length = 1
+    emu.mmu().writeByte(0xFF17, 0xF0);
+    emu.mmu().writeByte(0xFF18, 0x00);
+    emu.mmu().writeByte(0xFF19, 0xC7); // trigger + length enable
+    REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) != 0);
+
+    // Avança tempo suficiente para vários clocks de length (512 Hz)
+    for (int i = 0; i < 50000; ++i) emu.stepInstruction();
+    // Canal deve ter sido desligado pelo length
+    REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) == 0);
+
+    std::cout << "Todos os testes unitarios da APU passaram!\n\n";
 }
 
 static int runUnitTests() {
@@ -123,6 +194,7 @@ static int runUnitTests() {
     testTimersAndInterrupts();
     testJoypad();
     testEIDelay();
+    testAPU();
     std::cout << "Todos os testes passaram.\n";
     return 0;
 }
@@ -304,17 +376,30 @@ int main(int argc, char** argv) {
         }
 
         // --- Áudio ---
-        // Escreve no máximo kAudioBufferFrames por update (evita WARNING STREAM).
-        // Drena o buffer interno da APU sempre, inclusive com mute.
-        if (IsAudioStreamProcessed(audioStream) && !emu.muted()) {
-            size_t got = emu.popAudio(audioScratch.data(), static_cast<size_t>(kAudioBufferFrames));
-            for (size_t i = got * 2; i < static_cast<size_t>(kAudioBufferFrames) * 2u; ++i) {
-                audioScratch[i] = 0;
-            }
-            UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
-        } else {
+        // Stream processado: repor exatamente kAudioBufferFrames (sem overflow).
+        // Se a APU estiver adiantada demais (>250ms), descarta excesso para evitar latency.
+        constexpr size_t kMaxApuLatencyFrames = APU::kSampleRate / 4;
+        if (emu.audioSamplesAvailable() > kMaxApuLatencyFrames) {
             int16_t discard[2048];
-            while (emu.popAudio(discard, 1024) == 1024) {
+            while (emu.audioSamplesAvailable() > kMaxApuLatencyFrames / 2) {
+                if (emu.popAudio(discard, 1024) == 0) break;
+            }
+        }
+
+        if (IsAudioStreamProcessed(audioStream)) {
+            if (!emu.muted()) {
+                size_t got = emu.popAudio(audioScratch.data(), static_cast<size_t>(kAudioBufferFrames));
+                for (size_t i = got * 2; i < static_cast<size_t>(kAudioBufferFrames) * 2u; ++i) {
+                    audioScratch[i] = 0;
+                }
+                UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
+            } else {
+                // Mute: silêncio no host, drena APU para não acumular
+                int16_t discard[2048];
+                while (emu.popAudio(discard, 1024) == 1024) {
+                }
+                std::fill(audioScratch.begin(), audioScratch.end(), static_cast<int16_t>(0));
+                UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
             }
         }
 
