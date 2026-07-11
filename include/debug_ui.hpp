@@ -28,9 +28,12 @@ struct DebugUiInput {
 struct DebugUiState {
     bool showSidebar = true;
 
+    // 0=Home 1=CPU 2=Video 3=Audio 4=Memory 5=Cart 6=Input 7=Display
+    int panel = 0;
+
     // Display
     int paletteIndex = 0;
-    int shaderIndex = 0; // ScreenShaderId
+    int shaderIndex = 0;
     bool smoothFilter = false;
     bool integerScale = true;
 
@@ -48,7 +51,6 @@ void DebugUi_Shutdown();
 
 float DebugUi_SidebarWidth(const DebugUiState& state);
 
-// Aplica paleta selecionada na PPU se o índice mudou (chame quando paletteIndex alterar).
 void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state);
 
 void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,

@@ -5,16 +5,32 @@
 #include "imgui.h"
 #include "rlImGui.h"
 
+#include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
-// Forward (definida após o namespace anônimo)
 void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state);
 
 namespace {
 
-constexpr float kSidebarWidth = 380.0f;
-constexpr float kSidebarPad = 6.0f;
+constexpr float kSidebarWidth = 400.0f;
+constexpr float kSidebarPad = 8.0f;
+
+// Accent / theme tokens
+const ImVec4 kAccent     = ImVec4(0.25f, 0.78f, 0.62f, 1.f);   // mint
+const ImVec4 kAccentDim  = ImVec4(0.18f, 0.45f, 0.38f, 1.f);
+const ImVec4 kWarn       = ImVec4(1.00f, 0.72f, 0.28f, 1.f);
+const ImVec4 kDanger     = ImVec4(0.95f, 0.35f, 0.40f, 1.f);
+const ImVec4 kInfo       = ImVec4(0.40f, 0.72f, 1.00f, 1.f);
+const ImVec4 kMuted      = ImVec4(0.55f, 0.58f, 0.65f, 1.f);
+const ImVec4 kCardBg     = ImVec4(0.12f, 0.13f, 0.16f, 1.f);
+const ImVec4 kCardBorder = ImVec4(0.22f, 0.24f, 0.30f, 1.f);
+
+const char* kPanelNames[] = {
+    "Home", "CPU", "Video", "Audio", "Memory", "Cart", "Input", "Display"
+};
+constexpr int kPanelCount = 8;
 
 const char* mbcTypeName(Cartridge::MbcType t) {
     switch (t) {
@@ -29,282 +45,357 @@ const char* mbcTypeName(Cartridge::MbcType t) {
 
 const char* ppuModeName(PPU::Mode m) {
     switch (m) {
-    case PPU::ModeHBlank: return "HBlank (0)";
-    case PPU::ModeVBlank: return "VBlank (1)";
-    case PPU::ModeOAMSearch: return "OAM Search (2)";
-    case PPU::ModePixelTransfer: return "Pixel Transfer (3)";
+    case PPU::ModeHBlank: return "HBlank";
+    case PPU::ModeVBlank: return "VBlank";
+    case PPU::ModeOAMSearch: return "OAM";
+    case PPU::ModePixelTransfer: return "Transfer";
     default: return "?";
     }
 }
 
-void flagChip(const char* label, bool on) {
-    ImGui::TextColored(on ? ImVec4(0.35f, 0.95f, 0.45f, 1.f)
-                          : ImVec4(0.45f, 0.45f, 0.45f, 1.f),
-                       "%s", label);
+void applyModernTheme() {
+    ImGuiStyle& s = ImGui::GetStyle();
+    s.WindowRounding = 10.0f;
+    s.ChildRounding = 8.0f;
+    s.FrameRounding = 6.0f;
+    s.PopupRounding = 8.0f;
+    s.ScrollbarRounding = 8.0f;
+    s.GrabRounding = 6.0f;
+    s.TabRounding = 6.0f;
+    s.WindowPadding = ImVec2(14.0f, 12.0f);
+    s.FramePadding = ImVec2(10.0f, 6.0f);
+    s.ItemSpacing = ImVec2(10.0f, 8.0f);
+    s.ItemInnerSpacing = ImVec2(8.0f, 5.0f);
+    s.IndentSpacing = 16.0f;
+    s.ScrollbarSize = 12.0f;
+    s.WindowBorderSize = 0.0f;
+    s.FrameBorderSize = 0.0f;
+    s.PopupBorderSize = 1.0f;
+    s.TabBorderSize = 0.0f;
+
+    ImVec4* c = s.Colors;
+    c[ImGuiCol_WindowBg]             = ImVec4(0.09f, 0.10f, 0.12f, 0.98f);
+    c[ImGuiCol_ChildBg]              = ImVec4(0.11f, 0.12f, 0.15f, 1.00f);
+    c[ImGuiCol_PopupBg]              = ImVec4(0.10f, 0.11f, 0.14f, 0.98f);
+    c[ImGuiCol_Border]               = ImVec4(0.22f, 0.24f, 0.30f, 0.60f);
+    c[ImGuiCol_FrameBg]              = ImVec4(0.16f, 0.17f, 0.21f, 1.00f);
+    c[ImGuiCol_FrameBgHovered]       = ImVec4(0.20f, 0.24f, 0.30f, 1.00f);
+    c[ImGuiCol_FrameBgActive]        = ImVec4(0.22f, 0.30f, 0.28f, 1.00f);
+    c[ImGuiCol_TitleBg]              = ImVec4(0.08f, 0.09f, 0.11f, 1.00f);
+    c[ImGuiCol_TitleBgActive]        = ImVec4(0.10f, 0.12f, 0.14f, 1.00f);
+    c[ImGuiCol_MenuBarBg]            = ImVec4(0.08f, 0.09f, 0.11f, 0.98f);
+    c[ImGuiCol_ScrollbarBg]          = ImVec4(0.08f, 0.09f, 0.10f, 0.60f);
+    c[ImGuiCol_ScrollbarGrab]        = ImVec4(0.28f, 0.30f, 0.36f, 1.00f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.35f, 0.40f, 0.48f, 1.00f);
+    c[ImGuiCol_ScrollbarGrabActive]  = kAccentDim;
+    c[ImGuiCol_CheckMark]            = kAccent;
+    c[ImGuiCol_SliderGrab]           = kAccent;
+    c[ImGuiCol_SliderGrabActive]     = ImVec4(0.35f, 0.90f, 0.72f, 1.f);
+    c[ImGuiCol_Button]               = ImVec4(0.18f, 0.22f, 0.28f, 1.00f);
+    c[ImGuiCol_ButtonHovered]        = ImVec4(0.22f, 0.40f, 0.36f, 1.00f);
+    c[ImGuiCol_ButtonActive]         = kAccentDim;
+    c[ImGuiCol_Header]               = ImVec4(0.16f, 0.28f, 0.26f, 1.00f);
+    c[ImGuiCol_HeaderHovered]        = ImVec4(0.20f, 0.38f, 0.34f, 1.00f);
+    c[ImGuiCol_HeaderActive]         = kAccentDim;
+    c[ImGuiCol_Separator]            = ImVec4(0.22f, 0.24f, 0.30f, 0.50f);
+    c[ImGuiCol_Tab]                  = ImVec4(0.12f, 0.14f, 0.17f, 1.00f);
+    c[ImGuiCol_TabHovered]           = ImVec4(0.22f, 0.40f, 0.36f, 1.00f);
+    c[ImGuiCol_TabSelected]          = ImVec4(0.16f, 0.32f, 0.28f, 1.00f);
+    c[ImGuiCol_TabSelectedOverline]  = kAccent;
+    c[ImGuiCol_TabDimmed]            = ImVec4(0.10f, 0.11f, 0.13f, 1.00f);
+    c[ImGuiCol_TabDimmedSelected]    = ImVec4(0.14f, 0.22f, 0.20f, 1.00f);
+    c[ImGuiCol_Text]                 = ImVec4(0.92f, 0.93f, 0.95f, 1.00f);
+    c[ImGuiCol_TextDisabled]         = kMuted;
 }
 
-void sectionHeader(const char* label) {
+void Badge(const char* label, ImVec4 bg, ImVec4 fg = ImVec4(1, 1, 1, 1)) {
+    ImGui::PushStyleColor(ImGuiCol_Button, bg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, bg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, bg);
+    ImGui::PushStyleColor(ImGuiCol_Text, fg);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 3));
+    ImGui::SmallButton(label);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
+}
+
+void PillFlag(const char* label, bool on) {
+    if (on) {
+        Badge(label, ImVec4(0.15f, 0.45f, 0.32f, 1.f), kAccent);
+    } else {
+        Badge(label, ImVec4(0.16f, 0.17f, 0.20f, 1.f), kMuted);
+    }
+}
+
+bool PrimaryButton(const char* label, const ImVec2& size = ImVec2(-1, 0)) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.42f, 0.36f, 1.f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.55f, 0.46f, 1.f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, kAccentDim);
+    const bool pressed = ImGui::Button(label, size);
+    ImGui::PopStyleColor(3);
+    return pressed;
+}
+
+void BeginCard(const char* id) {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kCardBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+    ImGui::BeginChild(id, ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_Borders);
+}
+
+void EndCard() {
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
     ImGui::Spacing();
-    ImGui::SeparatorText(label);
 }
 
-// -------------------- Abas --------------------
-
-void tabCpu(Emulator& emu) {
-    const auto& r = emu.cpu().getRegs();
-    const bool z = emu.cpu().getFlag(CPU::FlagZ);
-    const bool n = emu.cpu().getFlag(CPU::FlagN);
-    const bool h = emu.cpu().getFlag(CPU::FlagH);
-    const bool c = emu.cpu().getFlag(CPU::FlagC);
-
-    if (ImGui::BeginTable("cpu_regs", 2, ImGuiTableFlags_SizingStretchSame)) {
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::Text("PC  %04X", r.pc);
-        ImGui::TableNextColumn();
-        ImGui::Text("SP  %04X", r.sp);
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::Text("AF  %04X", r.af());
-        ImGui::TableNextColumn();
-        ImGui::Text("BC  %04X", r.bc());
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::Text("DE  %04X", r.de());
-        ImGui::TableNextColumn();
-        ImGui::Text("HL  %04X", r.hl());
-        ImGui::EndTable();
-    }
-
-    sectionHeader("Bytes");
-    ImGui::Text("A %02X  F %02X  B %02X  C %02X", r.a, r.f, r.b, r.c);
-    ImGui::Text("D %02X  E %02X  H %02X  L %02X", r.d, r.e, r.h, r.l);
-
-    sectionHeader("Flags / Estado");
-    flagChip("Z", z); ImGui::SameLine();
-    flagChip("N", n); ImGui::SameLine();
-    flagChip("H", h); ImGui::SameLine();
-    flagChip("C", c);
-    ImGui::Text("IME  %s     HALT  %s",
-                emu.cpu().getIme() ? "ON" : "OFF",
-                emu.cpu().isHalted() ? "yes" : "no");
-
-    sectionHeader("Peek");
-    const uint8_t op = emu.mmu().readByte(r.pc);
-    ImGui::Text("Opcode @PC   %02X", op);
-    ImGui::Text("[HL] %02X     [SP] %02X%02X",
-                emu.mmu().readByte(r.hl()),
-                emu.mmu().readByte(static_cast<uint16_t>(r.sp + 1)),
-                emu.mmu().readByte(r.sp));
+void CardTitle(const char* title) {
+    ImGui::TextColored(kAccent, "%s", title);
+    ImGui::Spacing();
 }
 
-void tabPpu(Emulator& emu) {
-    const auto& mmu = emu.mmu();
-    const uint8_t lcdc = mmu.readByte(0xFF40);
-    const uint8_t stat = mmu.readByte(0xFF41);
-    const uint8_t scy = mmu.readByte(0xFF42);
-    const uint8_t scx = mmu.readByte(0xFF43);
-    const uint8_t ly = mmu.readByte(0xFF44);
-    const uint8_t lyc = mmu.readByte(0xFF45);
-    const uint8_t bgp = mmu.readByte(0xFF47);
-    const uint8_t obp0 = mmu.readByte(0xFF48);
-    const uint8_t obp1 = mmu.readByte(0xFF49);
-    const uint8_t wy = mmu.readByte(0xFF4A);
-    const uint8_t wx = mmu.readByte(0xFF4B);
-
-    ImGui::Text("Mode   %s", ppuModeName(emu.ppu().mode()));
-    ImGui::Text("LY     %3u   (int %u)    LYC  %3u", ly, emu.ppu().ly(), lyc);
-    ImGui::Text("LCDC   %02X              STAT %02X", lcdc, stat);
-
-    sectionHeader("Scroll / Window");
-    ImGui::Text("SCX/SCY   %u / %u", scx, scy);
-    ImGui::Text("WX/WY     %u / %u", wx, wy);
-    ImGui::Text("BGP %02X   OBP0 %02X   OBP1 %02X", bgp, obp0, obp1);
-
-    sectionHeader("LCDC bits");
-    ImGui::Text("LCD        %s", (lcdc & 0x80) ? "ON" : "OFF");
-    ImGui::Text("Window     %s", (lcdc & 0x20) ? "ON" : "OFF");
-    ImGui::Text("Sprites    %s  (%s)",
-                (lcdc & 0x02) ? "ON" : "OFF",
-                (lcdc & 0x04) ? "8x16" : "8x8");
-    ImGui::Text("BG map     %s", (lcdc & 0x08) ? "9C00" : "9800");
-    ImGui::Text("Tile data  %s", (lcdc & 0x10) ? "8000 unsigned" : "8800 signed");
-    ImGui::Text("Win map    %s", (lcdc & 0x40) ? "9C00" : "9800");
-    ImGui::Text("DMA        %s", mmu.dmaActive() ? "ACTIVE" : "idle");
+void KvRow(const char* key, const char* fmt, ...) {
+    ImGui::TextColored(kMuted, "%s", key);
+    ImGui::SameLine(110.0f);
+    char buf[128];
+    va_list args;
+    va_start(args, fmt);
+    std::vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    ImGui::TextUnformatted(buf);
 }
 
-void tabTimer(Emulator& emu) {
-    auto& mmu = emu.mmu();
-    const uint16_t divFull = mmu.divCounter();
-    const uint8_t div = mmu.readByte(0xFF04);
-    const uint8_t tima = mmu.readByte(0xFF05);
-    const uint8_t tma = mmu.readByte(0xFF06);
-    const uint8_t tac = mmu.readByte(0xFF07);
-    const uint8_t ie = mmu.readByte(0xFFFF);
-    const uint8_t iff = mmu.readByte(0xFF0F);
-
-    const char* tacHz = "4096 Hz";
-    switch (tac & 0x03) {
-    case 0: tacHz = "4096 Hz"; break;
-    case 1: tacHz = "262144 Hz"; break;
-    case 2: tacHz = "65536 Hz"; break;
-    case 3: tacHz = "16384 Hz"; break;
-    }
-
-    sectionHeader("Timer");
-    ImGui::Text("DIV   FF04  %02X   (int %04X)", div, divFull);
-    ImGui::Text("TIMA  FF05  %02X", tima);
-    ImGui::Text("TMA   FF06  %02X", tma);
-    ImGui::Text("TAC   FF07  %02X  %s  %s",
-                tac, (tac & 0x04) ? "enabled" : "disabled", tacHz);
-
-    sectionHeader("Interrupts");
-    ImGui::Text("IE FFFF  %02X     IF FF0F  %02X", ie, iff);
-
-    if (ImGui::BeginTable("irqs", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("IRQ");
-        ImGui::TableSetupColumn("IE", ImGuiTableColumnFlags_WidthFixed, 36.0f);
-        ImGui::TableSetupColumn("IF", ImGuiTableColumnFlags_WidthFixed, 36.0f);
-        ImGui::TableHeadersRow();
-
-        auto row = [](const char* name, uint8_t mask, uint8_t iev, uint8_t ifv) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(name);
-            ImGui::TableNextColumn();
-            ImGui::Text("%s", (iev & mask) ? "1" : "0");
-            ImGui::TableNextColumn();
-            const bool pend = (ifv & mask) != 0;
-            if (pend) ImGui::TextColored(ImVec4(1.f, 0.7f, 0.2f, 1.f), "1");
-            else ImGui::Text("0");
-        };
-        row("VBlank", 0x01, ie, iff);
-        row("LCD STAT", 0x02, ie, iff);
-        row("Timer", 0x04, ie, iff);
-        row("Serial", 0x08, ie, iff);
-        row("Joypad", 0x10, ie, iff);
-        ImGui::EndTable();
-    }
+void HexReg(const char* name, unsigned value, int width = 4) {
+    ImGui::BeginGroup();
+    ImGui::TextColored(kMuted, "%s", name);
+    if (width >= 4) ImGui::Text("%04X", value & 0xFFFF);
+    else ImGui::Text("%02X", value & 0xFF);
+    ImGui::EndGroup();
 }
 
-void tabCart(Emulator& emu, DebugUiState& state) {
-    const auto& cart = emu.cart();
-    ImGui::Text("Title    %s", cart.title().empty() ? "(none)" : cart.title().c_str());
-    ImGui::Text("MBC      %s", mbcTypeName(cart.type()));
-    ImGui::Text("Battery  %s", cart.hasBattery() ? "yes" : "no");
-    ImGui::Text("RTC      %s", cart.hasRtc() ? "yes" : "no");
-    ImGui::Text("Boot ROM %s", emu.bootRomEnabled() ? "active path" : "skip (post-boot)");
-    if (!cart.romPath().empty()) {
-        ImGui::Spacing();
-        ImGui::TextWrapped("ROM: %s", cart.romPath().c_str());
-    }
-    ImGui::TextWrapped("Save: %s", cart.defaultSavePath().c_str());
+// -------------------- Panels --------------------
 
-    sectionHeader("Actions");
+void panelHome(Emulator& emu, DebugUiState& state, float hostFps, float gameW, float gameH) {
+    const char* title = emu.cart().title().empty() ? "No cart" : emu.cart().title().c_str();
+
+    BeginCard("home_status");
+    ImGui::Text("%s", title);
+    ImGui::SameLine();
+    if (emu.paused()) Badge("PAUSED", ImVec4(0.45f, 0.30f, 0.10f, 1.f), kWarn);
+    else Badge("RUNNING", ImVec4(0.12f, 0.38f, 0.28f, 1.f), kAccent);
+    if (emu.muted()) {
+        ImGui::SameLine();
+        Badge("MUTE", ImVec4(0.40f, 0.15f, 0.18f, 1.f), kDanger);
+    }
+    ImGui::Spacing();
+    ImGui::TextColored(kMuted, "%.0f FPS  ·  %.2fx  ·  %.0f×%.0f",
+                       hostFps, emu.speed(), gameW, gameH);
+    EndCard();
+
+    BeginCard("home_transport");
+    CardTitle("Controls");
+    if (PrimaryButton(emu.paused() ? "Resume   P" : "Pause   P")) emu.togglePause();
+    if (ImGui::Button("Reset   R", ImVec2(-1, 0))) {
+        emu.reset();
+        emu.loadBattery();
+        DebugUi_SetStatus(state, "Reset");
+    }
+    if (ImGui::Button(emu.muted() ? "Unmute   M" : "Mute   M", ImVec2(-1, 0))) {
+        emu.setMuted(!emu.muted());
+    }
+    ImGui::Spacing();
+    float speed = emu.speed();
+    if (ImGui::SliderFloat("Speed", &speed, 0.25f, 4.0f, "%.2fx")) emu.setSpeed(speed);
+    if (ImGui::Button("0.5x")) emu.setSpeed(0.5f);
+    ImGui::SameLine();
+    if (ImGui::Button("1x")) emu.setSpeed(1.0f);
+    ImGui::SameLine();
+    if (ImGui::Button("2x")) emu.setSpeed(2.0f);
+    EndCard();
+
+    BeginCard("home_quick");
+    CardTitle("Quick save");
     if (ImGui::Button("Save SRAM  F1", ImVec2(-1, 0))) {
         if (emu.saveBattery()) DebugUi_SetStatus(state, "SRAM saved");
     }
     if (ImGui::Button("Save State  F5", ImVec2(-1, 0))) {
-        const std::string st = cart.defaultSavePath() + ".state";
+        const std::string st = emu.cart().defaultSavePath() + ".state";
         if (emu.saveState(st)) DebugUi_SetStatus(state, "State saved");
     }
     if (ImGui::Button("Load State  F9", ImVec2(-1, 0))) {
-        const std::string st = cart.defaultSavePath() + ".state";
+        const std::string st = emu.cart().defaultSavePath() + ".state";
         if (emu.loadState(st)) DebugUi_SetStatus(state, "State loaded");
     }
-}
+    EndCard();
 
-void tabJoypad(const DebugUiInput& input, Emulator& emu) {
-    const uint8_t joy = emu.mmu().readByte(0xFF00);
-    ImGui::Text("P1 (FF00)  %02X", joy);
+    BeginCard("home_snapshot");
+    CardTitle("Live");
+    const auto& r = emu.cpu().getRegs();
+    KvRow("PC", "%04X", r.pc);
+    KvRow("SP", "%04X", r.sp);
+    KvRow("LY", "%u  %s", emu.ppu().ly(), ppuModeName(emu.ppu().mode()));
+    const uint8_t nr52 = emu.mmu().readByte(0xFF26);
+    KvRow("APU", "CH %c%c%c%c",
+          (nr52 & 1) ? '1' : '-',
+          (nr52 & 2) ? '2' : '-',
+          (nr52 & 4) ? '3' : '-',
+          (nr52 & 8) ? '4' : '-');
+    KvRow("MBC", "%s%s", mbcTypeName(emu.cart().type()),
+          emu.cart().hasRtc() ? " +RTC" : "");
+    EndCard();
 
-    sectionHeader("D-Pad");
-    auto chip = [](const char* label, bool on) {
-        if (on) ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.45f, 1.f), "[%s]", label);
-        else ImGui::TextDisabled("[%s]", label);
-        ImGui::SameLine();
-    };
-    chip("Up", input.keyUp);
-    chip("Down", input.keyDown);
-    chip("Left", input.keyLeft);
-    chip("Right", input.keyRight);
-    ImGui::NewLine();
-
-    sectionHeader("Buttons");
-    chip("A", input.keyA);
-    chip("B", input.keyB);
-    chip("Select", input.keySelect);
-    chip("Start", input.keyStart);
-    ImGui::NewLine();
-
-    sectionHeader("Gamepad");
-    if (input.gamepadConnected) {
-        ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.45f, 1.f), "Connected (#%d)", input.gamepadIndex);
-        if (input.gamepadName) {
-            ImGui::TextWrapped("%s", input.gamepadName);
-        }
-        ImGui::TextDisabled("D-Pad / L-Stick");
-        ImGui::TextDisabled("A=GB A  B/X=GB B");
-        ImGui::TextDisabled("Start=Start  Back=Select");
-    } else {
-        ImGui::TextDisabled("No gamepad (Xbox 360 / XInput)");
+    if (state.statusTimer > 0.0f && !state.status.empty()) {
+        BeginCard("home_toast");
+        ImGui::TextColored(kAccent, "%s", state.status.c_str());
+        EndCard();
     }
-
-    ImGui::Spacing();
-    ImGui::TextDisabled("Keyboard: WASD/Arrows  Z/K=A  X/J=B");
-    ImGui::TextDisabled("Enter=Start  Backspace/Space=Select");
 }
 
-void tabApu(Emulator& emu) {
+void panelCpu(Emulator& emu) {
+    const auto& r = emu.cpu().getRegs();
+
+    BeginCard("cpu_regs");
+    CardTitle("Registers");
+    if (ImGui::BeginTable("regs", 4, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); HexReg("PC", r.pc);
+        ImGui::TableNextColumn(); HexReg("SP", r.sp);
+        ImGui::TableNextColumn(); HexReg("AF", r.af());
+        ImGui::TableNextColumn(); HexReg("BC", r.bc());
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); HexReg("DE", r.de());
+        ImGui::TableNextColumn(); HexReg("HL", r.hl());
+        ImGui::TableNextColumn(); HexReg("A", r.a, 2);
+        ImGui::TableNextColumn(); HexReg("F", r.f, 2);
+        ImGui::EndTable();
+    }
+    EndCard();
+
+    BeginCard("cpu_bytes");
+    CardTitle("Bytes");
+    ImGui::Text("A %02X   B %02X   C %02X   D %02X", r.a, r.b, r.c, r.d);
+    ImGui::Text("E %02X   H %02X   L %02X   F %02X", r.e, r.h, r.l, r.f);
+    EndCard();
+
+    BeginCard("cpu_flags");
+    CardTitle("Flags");
+    PillFlag("Z", emu.cpu().getFlag(CPU::FlagZ)); ImGui::SameLine();
+    PillFlag("N", emu.cpu().getFlag(CPU::FlagN)); ImGui::SameLine();
+    PillFlag("H", emu.cpu().getFlag(CPU::FlagH)); ImGui::SameLine();
+    PillFlag("C", emu.cpu().getFlag(CPU::FlagC));
+    ImGui::Spacing();
+    PillFlag("IME", emu.cpu().getIme()); ImGui::SameLine();
+    PillFlag("HALT", emu.cpu().isHalted());
+    EndCard();
+
+    BeginCard("cpu_peek");
+    CardTitle("Peek");
+    KvRow("Opcode", "%02X @ %04X", emu.mmu().readByte(r.pc), r.pc);
+    KvRow("[HL]", "%02X", emu.mmu().readByte(r.hl()));
+    KvRow("[SP]", "%02X%02X",
+          emu.mmu().readByte(static_cast<uint16_t>(r.sp + 1)),
+          emu.mmu().readByte(r.sp));
+    EndCard();
+}
+
+void panelVideo(Emulator& emu) {
+    const auto& mmu = emu.mmu();
+    const uint8_t lcdc = mmu.readByte(0xFF40);
+    const uint8_t stat = mmu.readByte(0xFF41);
+
+    BeginCard("vid_mode");
+    CardTitle("PPU");
+    KvRow("Mode", "%s", ppuModeName(emu.ppu().mode()));
+    KvRow("LY / LYC", "%u / %u", mmu.readByte(0xFF44), mmu.readByte(0xFF45));
+    KvRow("LCDC", "%02X", lcdc);
+    KvRow("STAT", "%02X", stat);
+    KvRow("DMA", "%s", mmu.dmaActive() ? "ACTIVE" : "idle");
+    EndCard();
+
+    BeginCard("vid_scroll");
+    CardTitle("Scroll / Window");
+    KvRow("SCX / SCY", "%u / %u", mmu.readByte(0xFF43), mmu.readByte(0xFF42));
+    KvRow("WX / WY", "%u / %u", mmu.readByte(0xFF4B), mmu.readByte(0xFF4A));
+    KvRow("BGP", "%02X", mmu.readByte(0xFF47));
+    KvRow("OBP0/1", "%02X / %02X", mmu.readByte(0xFF48), mmu.readByte(0xFF49));
+    EndCard();
+
+    BeginCard("vid_lcdc");
+    CardTitle("LCDC");
+    PillFlag("LCD", (lcdc & 0x80) != 0); ImGui::SameLine();
+    PillFlag("WIN", (lcdc & 0x20) != 0); ImGui::SameLine();
+    PillFlag("OBJ", (lcdc & 0x02) != 0); ImGui::SameLine();
+    PillFlag("BG", (lcdc & 0x01) != 0);
+    ImGui::Spacing();
+    KvRow("Sprites", "%s", (lcdc & 0x04) ? "8x16" : "8x8");
+    KvRow("BG map", "%s", (lcdc & 0x08) ? "9C00" : "9800");
+    KvRow("Tiles", "%s", (lcdc & 0x10) ? "8000" : "8800");
+    KvRow("Win map", "%s", (lcdc & 0x40) ? "9C00" : "9800");
+    EndCard();
+}
+
+void panelAudio(Emulator& emu) {
     const auto& mmu = emu.mmu();
     const uint8_t nr52 = mmu.readByte(0xFF26);
     const uint8_t nr51 = mmu.readByte(0xFF25);
     const uint8_t nr50 = mmu.readByte(0xFF24);
 
-    ImGui::Text("Host mute   %s", emu.muted() ? "YES" : "no");
-    ImGui::Text("APU master  %s", emu.apu().enabled() ? "enabled" : "disabled");
-    ImGui::Text("NR52 %02X     power %s", nr52, (nr52 & 0x80) ? "ON" : "OFF");
+    BeginCard("apu_status");
+    CardTitle("APU");
+    PillFlag("POWER", (nr52 & 0x80) != 0); ImGui::SameLine();
+    PillFlag("MUTE", emu.muted());
+    ImGui::Spacing();
+    KvRow("NR52", "%02X", nr52);
+    KvRow("Rate", "%d Hz", APU::kSampleRate);
+    EndCard();
 
-    sectionHeader("Channels");
-    auto ch = [](const char* name, bool on) {
-        ImGui::Text("%s  ", name);
-        ImGui::SameLine();
-        if (on) ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.45f, 1.f), "on");
-        else ImGui::TextDisabled("off");
-    };
-    ch("CH1 square", (nr52 & 0x01) != 0);
-    ch("CH2 square", (nr52 & 0x02) != 0);
-    ch("CH3 wave  ", (nr52 & 0x04) != 0);
-    ch("CH4 noise ", (nr52 & 0x08) != 0);
+    BeginCard("apu_ch");
+    CardTitle("Channels");
+    PillFlag("CH1", (nr52 & 0x01) != 0); ImGui::SameLine();
+    PillFlag("CH2", (nr52 & 0x02) != 0); ImGui::SameLine();
+    PillFlag("CH3", (nr52 & 0x04) != 0); ImGui::SameLine();
+    PillFlag("CH4", (nr52 & 0x08) != 0);
+    EndCard();
 
-    sectionHeader("Mixer");
-    ImGui::Text("NR51 pan   %02X", nr51);
-    ImGui::Text("NR50 vol   %02X   L=%u  R=%u", nr50, (nr50 >> 4) & 0x7, nr50 & 0x7);
-    ImGui::Text("Rate       %d Hz", APU::kSampleRate);
+    BeginCard("apu_mix");
+    CardTitle("Mixer");
+    KvRow("NR51 pan", "%02X", nr51);
+    KvRow("NR50", "%02X  L=%u R=%u", nr50, (nr50 >> 4) & 7, nr50 & 7);
+    EndCard();
 
-    sectionHeader("Registers");
-    ImGui::Text("CH1  %02X %02X %02X %02X %02X",
+    BeginCard("apu_regs");
+    CardTitle("Registers");
+    ImGui::TextDisabled("CH1");
+    ImGui::Text("%02X %02X %02X %02X %02X",
                 mmu.readByte(0xFF10), mmu.readByte(0xFF11), mmu.readByte(0xFF12),
                 mmu.readByte(0xFF13), mmu.readByte(0xFF14));
-    ImGui::Text("CH2     %02X %02X %02X %02X",
+    ImGui::TextDisabled("CH2");
+    ImGui::Text("%02X %02X %02X %02X",
                 mmu.readByte(0xFF16), mmu.readByte(0xFF17),
                 mmu.readByte(0xFF18), mmu.readByte(0xFF19));
-    ImGui::Text("CH3  %02X %02X %02X %02X %02X",
+    ImGui::TextDisabled("CH3");
+    ImGui::Text("%02X %02X %02X %02X %02X",
                 mmu.readByte(0xFF1A), mmu.readByte(0xFF1B), mmu.readByte(0xFF1C),
                 mmu.readByte(0xFF1D), mmu.readByte(0xFF1E));
-    ImGui::Text("CH4     %02X %02X %02X %02X",
+    ImGui::TextDisabled("CH4");
+    ImGui::Text("%02X %02X %02X %02X",
                 mmu.readByte(0xFF20), mmu.readByte(0xFF21),
                 mmu.readByte(0xFF22), mmu.readByte(0xFF23));
+    EndCard();
 }
 
-void tabMemory(Emulator& emu, DebugUiState& state) {
-    ImGui::SetNextItemWidth(80.0f);
+void panelMemory(Emulator& emu, DebugUiState& state) {
+    BeginCard("mem_nav");
+    CardTitle("Memory");
+    ImGui::SetNextItemWidth(90.0f);
     ImGui::InputScalar("Addr", ImGuiDataType_S32, &state.memAddress,
                        nullptr, nullptr, "%04X",
                        ImGuiInputTextFlags_CharsHexadecimal);
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(120.0f);
-    ImGui::SliderInt("##bytes", &state.memBytes, 16, 256, "%d bytes");
+    ImGui::SetNextItemWidth(140.0f);
+    ImGui::SliderInt("##n", &state.memBytes, 16, 256, "%d B");
     state.memAddress &= 0xFFFF;
     if (state.memBytes < 16) state.memBytes = 16;
 
@@ -317,85 +408,131 @@ void tabMemory(Emulator& emu, DebugUiState& state) {
     if (ImGui::Button("VRAM")) state.memAddress = 0x8000;
     ImGui::SameLine();
     if (ImGui::Button("OAM")) state.memAddress = 0xFE00;
+    EndCard();
 
-    ImGui::Separator();
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, kCardBg);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
     ImGui::BeginChild("memdump", ImVec2(0, 0), ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_HorizontalScrollbar);
 
-    ImGui::PushFont(ImGui::GetFont()); // mono-ish if available; default ok
     const uint16_t base = static_cast<uint16_t>(state.memAddress);
-    const int count = state.memBytes;
-    for (int row = 0; row < count; row += 16) {
+    for (int row = 0; row < state.memBytes; row += 16) {
         char line[128];
-        int pos = std::snprintf(line, sizeof(line), "%04X:",
+        int pos = std::snprintf(line, sizeof(line), "%04X  ",
                                 static_cast<unsigned>((base + row) & 0xFFFF));
-        for (int col = 0; col < 16 && (row + col) < count; ++col) {
-            const uint16_t addr = static_cast<uint16_t>(base + row + col);
-            const uint8_t b = emu.mmu().readByte(addr);
-            pos += std::snprintf(line + pos, sizeof(line) - static_cast<size_t>(pos),
-                                 " %02X", b);
+        for (int col = 0; col < 16 && (row + col) < state.memBytes; ++col) {
+            const uint8_t b = emu.mmu().readByte(static_cast<uint16_t>(base + row + col));
+            pos += std::snprintf(line + pos, sizeof(line) - static_cast<size_t>(pos), "%02X ", b);
         }
-        pos += std::snprintf(line + pos, sizeof(line) - static_cast<size_t>(pos), "  ");
-        for (int col = 0; col < 16 && (row + col) < count; ++col) {
-            const uint16_t addr = static_cast<uint16_t>(base + row + col);
-            const uint8_t b = emu.mmu().readByte(addr);
+        pos += std::snprintf(line + pos, sizeof(line) - static_cast<size_t>(pos), " ");
+        for (int col = 0; col < 16 && (row + col) < state.memBytes; ++col) {
+            const uint8_t b = emu.mmu().readByte(static_cast<uint16_t>(base + row + col));
             const char ch = (b >= 32 && b < 127) ? static_cast<char>(b) : '.';
             pos += std::snprintf(line + pos, sizeof(line) - static_cast<size_t>(pos), "%c", ch);
         }
         ImGui::TextUnformatted(line);
     }
-    ImGui::PopFont();
     ImGui::EndChild();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
 }
 
-void tabEmulation(Emulator& emu, DebugUiState& state, float hostFps, int scale,
-                  float gameW, float gameH) {
-    ImGui::Text("FPS      %.0f", hostFps);
-    ImGui::Text("Scale    %dx  (%.0fx%.0f px)", scale, gameW, gameH);
-    ImGui::Text("Speed    %.2fx", emu.speed());
+void panelCart(Emulator& emu, DebugUiState& state) {
+    const auto& cart = emu.cart();
+    BeginCard("cart_info");
+    CardTitle("Cartridge");
+    KvRow("Title", "%s", cart.title().empty() ? "(none)" : cart.title().c_str());
+    KvRow("MBC", "%s", mbcTypeName(cart.type()));
+    KvRow("Battery", "%s", cart.hasBattery() ? "yes" : "no");
+    KvRow("RTC", "%s", cart.hasRtc() ? "yes" : "no");
+    KvRow("Boot", "%s", emu.bootRomEnabled() ? "enabled" : "skip");
+    if (!cart.romPath().empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(kMuted, "ROM");
+        ImGui::TextWrapped("%s", cart.romPath().c_str());
+    }
+    ImGui::TextColored(kMuted, "Save");
+    ImGui::TextWrapped("%s", cart.defaultSavePath().c_str());
+    EndCard();
 
-    if (emu.paused()) {
-        ImGui::TextColored(ImVec4(1.f, 0.65f, 0.2f, 1.f), "PAUSED");
+    BeginCard("cart_actions");
+    CardTitle("Actions");
+    if (PrimaryButton("Save SRAM  F1")) {
+        if (emu.saveBattery()) DebugUi_SetStatus(state, "SRAM saved");
+    }
+    if (ImGui::Button("Save State  F5", ImVec2(-1, 0))) {
+        const std::string st = cart.defaultSavePath() + ".state";
+        if (emu.saveState(st)) DebugUi_SetStatus(state, "State saved");
+    }
+    if (ImGui::Button("Load State  F9", ImVec2(-1, 0))) {
+        const std::string st = cart.defaultSavePath() + ".state";
+        if (emu.loadState(st)) DebugUi_SetStatus(state, "State loaded");
+    }
+    EndCard();
+
+    // Timer / IRQ compact (antes era aba separada)
+    BeginCard("sys_timer");
+    CardTitle("Timer / IRQs");
+    auto& mmu = emu.mmu();
+    KvRow("DIV", "%02X  (%04X)", mmu.readByte(0xFF04), mmu.divCounter());
+    KvRow("TIMA/TMA", "%02X / %02X", mmu.readByte(0xFF05), mmu.readByte(0xFF06));
+    KvRow("TAC", "%02X", mmu.readByte(0xFF07));
+    KvRow("IE / IF", "%02X / %02X", mmu.readByte(0xFFFF), mmu.readByte(0xFF0F));
+    EndCard();
+}
+
+void panelInput(const DebugUiInput& input, Emulator& emu) {
+    BeginCard("pad_state");
+    CardTitle("Joypad");
+    KvRow("P1", "%02X", emu.mmu().readByte(0xFF00));
+    ImGui::Spacing();
+    ImGui::TextColored(kMuted, "D-Pad");
+    PillFlag("Up", input.keyUp); ImGui::SameLine();
+    PillFlag("Down", input.keyDown); ImGui::SameLine();
+    PillFlag("Left", input.keyLeft); ImGui::SameLine();
+    PillFlag("Right", input.keyRight);
+    ImGui::Spacing();
+    ImGui::TextColored(kMuted, "Buttons");
+    PillFlag("A", input.keyA); ImGui::SameLine();
+    PillFlag("B", input.keyB); ImGui::SameLine();
+    PillFlag("Select", input.keySelect); ImGui::SameLine();
+    PillFlag("Start", input.keyStart);
+    EndCard();
+
+    BeginCard("pad_device");
+    CardTitle("Gamepad");
+    if (input.gamepadConnected) {
+        Badge("CONNECTED", ImVec4(0.12f, 0.38f, 0.28f, 1.f), kAccent);
+        if (input.gamepadName) {
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", input.gamepadName);
+        }
+        ImGui::TextColored(kMuted, "A/Y = A · B/X = B · Start/Back");
     } else {
-        ImGui::TextColored(ImVec4(0.3f, 0.85f, 1.f, 1.f), "Running");
+        Badge("NO PAD", ImVec4(0.20f, 0.20f, 0.24f, 1.f), kMuted);
+        ImGui::Spacing();
+        ImGui::TextColored(kMuted, "Connect an Xbox 360 / XInput controller");
     }
-    if (emu.muted()) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(1.f, 0.4f, 0.4f, 1.f), "  MUTE");
-    }
+    EndCard();
 
-    sectionHeader("Controls");
-    if (ImGui::Button(emu.paused() ? "Resume  P" : "Pause  P", ImVec2(-1, 0))) {
-        emu.togglePause();
-    }
-    if (ImGui::Button("Reset  R", ImVec2(-1, 0))) {
-        emu.reset();
-        emu.loadBattery();
-        DebugUi_SetStatus(state, "Reset + battery reload");
-    }
-    if (ImGui::Button(emu.muted() ? "Unmute  M" : "Mute  M", ImVec2(-1, 0))) {
-        emu.setMuted(!emu.muted());
-    }
+    BeginCard("pad_keys");
+    CardTitle("Keyboard");
+    ImGui::TextColored(kMuted, "WASD / Arrows · Z/K = A · X/J = B");
+    ImGui::TextColored(kMuted, "Enter = Start · Space = Select");
+    EndCard();
+}
 
-    float speed = emu.speed();
-    if (ImGui::SliderFloat("Speed##slider", &speed, 0.25f, 8.0f, "%.2fx")) {
-        emu.setSpeed(speed);
-    }
-    if (ImGui::Button("0.5x")) emu.setSpeed(0.5f);
-    ImGui::SameLine();
-    if (ImGui::Button("1x")) emu.setSpeed(1.0f);
-    ImGui::SameLine();
-    if (ImGui::Button("2x")) emu.setSpeed(2.0f);
-    ImGui::SameLine();
-    if (ImGui::Button("4x")) emu.setSpeed(4.0f);
+void panelDisplay(Emulator& emu, DebugUiState& state, int scale, float gameW, float gameH) {
+    BeginCard("disp_info");
+    CardTitle("Viewport");
+    KvRow("Scale", "%dx  (%.0f×%.0f)", scale, gameW, gameH);
+    KvRow("Integer", "%s", state.integerScale ? "on" : "off");
+    KvRow("Filter", "%s", state.smoothFilter ? "bilinear" : "point");
+    EndCard();
 
-    if (state.statusTimer > 0.0f && !state.status.empty()) {
-        sectionHeader("Status");
-        ImGui::TextColored(ImVec4(0.6f, 1.f, 0.6f, 1.f), "%s", state.status.c_str());
-    }
-
-    sectionHeader("Display");
-    if (ImGui::BeginCombo("Palette", kPalettes[state.paletteIndex].name)) {
+    BeginCard("disp_palette");
+    CardTitle("Palette");
+    if (ImGui::BeginCombo("##pal", kPalettes[state.paletteIndex].name)) {
         for (int i = 0; i < kPaletteCount; ++i) {
             const bool sel = (i == state.paletteIndex);
             if (ImGui::Selectable(kPalettes[i].name, sel)) {
@@ -406,18 +543,21 @@ void tabEmulation(Emulator& emu, DebugUiState& state, float hostFps, int scale,
         }
         ImGui::EndCombo();
     }
-    // Preview de cores
     for (int i = 0; i < 4; ++i) {
         const uint32_t c = kPalettes[state.paletteIndex].colors[i];
-        ImGui::ColorButton(("##p" + std::to_string(i)).c_str(),
-                           ImVec4(((c >> 0) & 0xFF) / 255.f,
+        ImGui::ColorButton(("##sw" + std::to_string(i)).c_str(),
+                           ImVec4(((c) & 0xFF) / 255.f,
                                   ((c >> 8) & 0xFF) / 255.f,
                                   ((c >> 16) & 0xFF) / 255.f, 1.f),
                            ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
-                           ImVec2(28, 18));
+                           ImVec2(36, 22));
         if (i < 3) ImGui::SameLine();
     }
-    if (ImGui::BeginCombo("Shader", ScreenShaderName(static_cast<ScreenShaderId>(state.shaderIndex)))) {
+    EndCard();
+
+    BeginCard("disp_shader");
+    CardTitle("Shader");
+    if (ImGui::BeginCombo("##sh", ScreenShaderName(static_cast<ScreenShaderId>(state.shaderIndex)))) {
         for (int i = 0; i < ScreenShaderCount(); ++i) {
             const bool sel = (i == state.shaderIndex);
             if (ImGui::Selectable(ScreenShaderName(static_cast<ScreenShaderId>(i)), sel)) {
@@ -429,13 +569,96 @@ void tabEmulation(Emulator& emu, DebugUiState& state, float hostFps, int scale,
     }
     ImGui::Checkbox("Smooth filter", &state.smoothFilter);
     ImGui::Checkbox("Integer scale", &state.integerScale);
+    EndCard();
 
-    sectionHeader("Hotkeys");
-    ImGui::BulletText("P pause   R reset   M mute");
-    ImGui::BulletText("1 / 2  speed   [ ] palette");
-    ImGui::BulletText("; / '  shader prev/next");
-    ImGui::BulletText("F5/F9 state  F1 SRAM");
-    ImGui::BulletText("F11 fullscreen  F12 sidebar");
+    BeginCard("disp_keys");
+    CardTitle("Shortcuts");
+    ImGui::BulletText("P pause · R reset · M mute");
+    ImGui::BulletText("[ ] palette · ; ' shader");
+    ImGui::BulletText("F5/F9 state · F1 SRAM");
+    ImGui::BulletText("F11 fullscreen · F12 sidebar");
+    EndCard();
+}
+
+void drawMenuBar(Emulator& emu, DebugUiState& state, float hostFps, float screenW) {
+    if (!ImGui::BeginMainMenuBar()) return;
+
+    if (ImGui::BeginMenu("View")) {
+        ImGui::MenuItem("Sidebar", "F12", &state.showSidebar);
+        ImGui::MenuItem("Smooth filter", nullptr, &state.smoothFilter);
+        ImGui::MenuItem("Integer scale", nullptr, &state.integerScale);
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Palette")) {
+            for (int i = 0; i < kPaletteCount; ++i) {
+                if (ImGui::MenuItem(kPalettes[i].name, nullptr, state.paletteIndex == i)) {
+                    state.paletteIndex = i;
+                    DebugUi_ApplyPalette(emu, state);
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Shader")) {
+            for (int i = 0; i < ScreenShaderCount(); ++i) {
+                if (ImGui::MenuItem(ScreenShaderName(static_cast<ScreenShaderId>(i)),
+                                    nullptr, state.shaderIndex == i)) {
+                    state.shaderIndex = i;
+                }
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Emulator")) {
+        if (ImGui::MenuItem(emu.paused() ? "Resume" : "Pause", "P")) emu.togglePause();
+        if (ImGui::MenuItem("Reset", "R")) {
+            emu.reset();
+            emu.loadBattery();
+            DebugUi_SetStatus(state, "Reset");
+        }
+        if (ImGui::MenuItem(emu.muted() ? "Unmute" : "Mute", "M")) emu.setMuted(!emu.muted());
+        ImGui::Separator();
+        if (ImGui::MenuItem("Save SRAM", "F1")) {
+            if (emu.saveBattery()) DebugUi_SetStatus(state, "SRAM saved");
+        }
+        if (ImGui::MenuItem("Save State", "F5")) {
+            const std::string st = emu.cart().defaultSavePath() + ".state";
+            if (emu.saveState(st)) DebugUi_SetStatus(state, "State saved");
+        }
+        if (ImGui::MenuItem("Load State", "F9")) {
+            const std::string st = emu.cart().defaultSavePath() + ".state";
+            if (emu.loadState(st)) DebugUi_SetStatus(state, "State loaded");
+        }
+        ImGui::EndMenu();
+    }
+
+    // Right status cluster
+    const char* title = emu.cart().title().empty() ? "GB DMG" : emu.cart().title().c_str();
+    char fpsBuf[32];
+    std::snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS", hostFps);
+
+    // Measure badges roughly
+    const float pad = 10.0f;
+    float rightX = screenW - pad;
+    auto placeBadge = [&](const char* text, ImVec4 bg, ImVec4 fg) {
+        const float w = ImGui::CalcTextSize(text).x + 22.0f;
+        rightX -= w + 6.0f;
+        ImGui::SameLine(rightX);
+        Badge(text, bg, fg);
+    };
+
+    // Place from right to left
+    if (emu.muted()) placeBadge("MUTE", ImVec4(0.40f, 0.15f, 0.18f, 1.f), kDanger);
+    placeBadge(emu.paused() ? "PAUSED" : "RUN",
+               emu.paused() ? ImVec4(0.45f, 0.30f, 0.10f, 1.f) : ImVec4(0.12f, 0.38f, 0.28f, 1.f),
+               emu.paused() ? kWarn : kAccent);
+    placeBadge(fpsBuf, ImVec4(0.16f, 0.18f, 0.22f, 1.f), kInfo);
+
+    const float titleW = ImGui::CalcTextSize(title).x;
+    rightX -= titleW + 16.0f;
+    ImGui::SameLine(rightX);
+    ImGui::TextColored(ImVec4(0.85f, 0.88f, 0.92f, 1.f), "%s", title);
+
+    ImGui::EndMainMenuBar();
 }
 
 } // namespace
@@ -448,16 +671,8 @@ void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state) {
 
 void DebugUi_Init() {
     rlImGuiSetup(true);
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    // Sidebar densa e legível
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 4.0f;
-    style.FrameRounding = 3.0f;
-    style.TabRounding = 3.0f;
-    style.WindowPadding = ImVec2(10.0f, 8.0f);
-    style.ItemSpacing = ImVec2(8.0f, 6.0f);
-    style.FramePadding = ImVec2(6.0f, 4.0f);
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    applyModernTheme();
 }
 
 void DebugUi_Shutdown() {
@@ -498,81 +713,19 @@ void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
         state.statusTimer -= dt;
         if (state.statusTimer < 0.0f) state.statusTimer = 0.0f;
     }
+    if (state.panel < 0 || state.panel >= kPanelCount) state.panel = 0;
 
-    const float menuH = ImGui::GetFrameHeight();
     const float screenW = static_cast<float>(GetScreenWidth());
     const float screenH = static_cast<float>(GetScreenHeight());
+    const float menuH = ImGui::GetFrameHeight();
 
-    // ---- Menu bar compacta ----
-    if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("View")) {
-            ImGui::MenuItem("Debug sidebar", "F12", &state.showSidebar);
-            ImGui::MenuItem("Smooth filter", nullptr, &state.smoothFilter);
-            ImGui::MenuItem("Integer scale", nullptr, &state.integerScale);
-            if (ImGui::BeginMenu("Palette")) {
-                for (int i = 0; i < kPaletteCount; ++i) {
-                    if (ImGui::MenuItem(kPalettes[i].name, nullptr, state.paletteIndex == i)) {
-                        state.paletteIndex = i;
-                        DebugUi_ApplyPalette(emu, state);
-                    }
-                }
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("Shader")) {
-                for (int i = 0; i < ScreenShaderCount(); ++i) {
-                    if (ImGui::MenuItem(ScreenShaderName(static_cast<ScreenShaderId>(i)),
-                                        nullptr, state.shaderIndex == i)) {
-                        state.shaderIndex = i;
-                    }
-                }
-                ImGui::EndMenu();
-            }
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Emulator")) {
-            if (ImGui::MenuItem(emu.paused() ? "Resume" : "Pause", "P")) emu.togglePause();
-            if (ImGui::MenuItem("Reset", "R")) {
-                emu.reset();
-                emu.loadBattery();
-                DebugUi_SetStatus(state, "Reset + battery reload");
-            }
-            if (ImGui::MenuItem(emu.muted() ? "Unmute" : "Mute", "M")) {
-                emu.setMuted(!emu.muted());
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Save SRAM", "F1")) {
-                if (emu.saveBattery()) DebugUi_SetStatus(state, "SRAM saved");
-            }
-            if (ImGui::MenuItem("Save State", "F5")) {
-                const std::string st = emu.cart().defaultSavePath() + ".state";
-                if (emu.saveState(st)) DebugUi_SetStatus(state, "State saved");
-            }
-            if (ImGui::MenuItem("Load State", "F9")) {
-                const std::string st = emu.cart().defaultSavePath() + ".state";
-                if (emu.loadState(st)) DebugUi_SetStatus(state, "State loaded");
-            }
-            ImGui::EndMenu();
-        }
-
-        // Status à direita na menu bar
-        const char* title = emu.cart().title().empty() ? "GB DMG" : emu.cart().title().c_str();
-        char right[128];
-        std::snprintf(right, sizeof(right), "%s  |  %.0f FPS  |  %s%s",
-                      title, hostFps,
-                      emu.paused() ? "PAUSED" : "RUN",
-                      emu.muted() ? "  MUTE" : "");
-        const float rightW = ImGui::CalcTextSize(right).x;
-        ImGui::SetCursorPosX(screenW - rightW - 12.0f);
-        ImGui::TextUnformatted(right);
-        ImGui::EndMainMenuBar();
-    }
+    drawMenuBar(emu, state, hostFps, screenW);
 
     if (!state.showSidebar) {
         rlImGuiEnd();
         return;
     }
 
-    // ---- Sidebar fixa à direita (não sobrepõe a tela GB) ----
     const float sideW = kSidebarWidth;
     const float x = screenW - sideW - kSidebarPad;
     const float y = menuH + kSidebarPad;
@@ -580,50 +733,61 @@ void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
 
     ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(sideW, h), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.96f);
+    ImGui::SetNextWindowBgAlpha(0.97f);
 
     const ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoTitleBar |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-    if (ImGui::Begin("Debug", &state.showSidebar, flags)) {
-        if (ImGui::BeginTabBar("##debug_tabs", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_Reorderable)) {
-            if (ImGui::BeginTabItem("CPU")) {
-                tabCpu(emu);
-                ImGui::EndTabItem();
+    if (ImGui::Begin("##inspector", &state.showSidebar, flags)) {
+        // Header
+        ImGui::TextColored(kAccent, "Inspector");
+        ImGui::SameLine(sideW - 36.0f);
+        if (ImGui::SmallButton("x")) state.showSidebar = false;
+
+        ImGui::Spacing();
+
+        // Segmented nav: 2 rows × 4
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
+        const float btnW = (ImGui::GetContentRegionAvail().x - 6.0f * 3.0f) / 4.0f;
+        for (int row = 0; row < 2; ++row) {
+            for (int col = 0; col < 4; ++col) {
+                const int i = row * 4 + col;
+                if (col > 0) ImGui::SameLine();
+                const bool selected = (state.panel == i);
+                if (selected) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.42f, 0.36f, 1.f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.22f, 0.50f, 0.42f, 1.f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 1));
+                }
+                if (ImGui::Button(kPanelNames[i], ImVec2(btnW, 30.0f))) {
+                    state.panel = i;
+                }
+                if (selected) ImGui::PopStyleColor(3);
             }
-            if (ImGui::BeginTabItem("PPU")) {
-                tabPpu(emu);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Timer")) {
-                tabTimer(emu);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("APU")) {
-                tabApu(emu);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Mem")) {
-                tabMemory(emu, state);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Cart")) {
-                tabCart(emu, state);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Pad")) {
-                tabJoypad(input, emu);
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Emu")) {
-                tabEmulation(emu, state, hostFps, scale, gameW, gameH);
-                ImGui::EndTabItem();
-            }
-            ImGui::EndTabBar();
         }
+        ImGui::PopStyleVar();
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::BeginChild("##panel_body", ImVec2(0, 0), ImGuiChildFlags_None);
+        switch (state.panel) {
+        case 0: panelHome(emu, state, hostFps, gameW, gameH); break;
+        case 1: panelCpu(emu); break;
+        case 2: panelVideo(emu); break;
+        case 3: panelAudio(emu); break;
+        case 4: panelMemory(emu, state); break;
+        case 5: panelCart(emu, state); break;
+        case 6: panelInput(input, emu); break;
+        case 7: panelDisplay(emu, state, scale, gameW, gameH); break;
+        default: break;
+        }
+        ImGui::EndChild();
     }
     ImGui::End();
 
