@@ -1,6 +1,7 @@
 #include "debug_ui.hpp"
 #include "emulator.hpp"
 #include "palette.hpp"
+#include "shaders.hpp"
 #include "raylib.h"
 
 #include <algorithm>
@@ -338,6 +339,8 @@ static void printUsage(const char* argv0) {
         << "  --muted         Inicia sem audio\n"
         << "  --boot PATH     Boot ROM DMG (256 bytes, opcional)\n"
         << "  --palette N     Paleta 0.." << (kPaletteCount - 1) << " (padrao 0 DMG Green)\n"
+        << "  --shader N      Shader 0.." << (ScreenShaderCount() - 1)
+        << " (0=None 1=Scanlines 2=LCD 3=Matrix 4=CRT 5=Glow)\n"
         << "  --smooth        Filtro bilinear na tela\n"
         << "\nControles (teclado):\n"
         << "  Setas/WASD      D-Pad\n"
@@ -357,6 +360,7 @@ static void printUsage(const char* argv0) {
         << "  M               Mute\n"
         << "  1/2             Velocidade -/+\n"
         << "  [ / ]           Paleta anterior/proxima\n"
+        << "  ; / '           Shader anterior/proximo\n"
         << "  F5/F9           Save/Load state\n"
         << "  F1              Salvar SRAM(+RTC)\n"
         << "  F11             Fullscreen\n"
@@ -368,6 +372,7 @@ int main(int argc, char** argv) {
     std::string bootPath;
     int scale = 4;
     int paletteIndex = 0;
+    int shaderIndex = 0;
     bool muted = false;
     bool smooth = false;
     bool runTests = false;
@@ -386,6 +391,8 @@ int main(int argc, char** argv) {
             bootPath = argv[++i];
         } else if (arg == "--palette" && i + 1 < argc) {
             paletteIndex = std::atoi(argv[++i]);
+        } else if (arg == "--shader" && i + 1 < argc) {
+            shaderIndex = std::atoi(argv[++i]);
         } else if (arg == "--help" || arg == "-h") {
             printUsage(argv[0]);
             return 0;
@@ -447,14 +454,22 @@ int main(int argc, char** argv) {
     UnloadImage(emptyImage);
     SetTextureFilter(screenTexture, smooth ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
 
+    ScreenShaders screenShaders;
+    if (!screenShaders.load()) {
+        std::cerr << "Aviso: falha ao carregar shaders; usando None.\n";
+    }
+    screenShaders.setActiveIndex(std::clamp(shaderIndex, 0, ScreenShaderCount() - 1));
+
     DebugUi_Init();
     DebugUiState uiState;
     uiState.paletteIndex = std::clamp(paletteIndex, 0, kPaletteCount - 1);
+    uiState.shaderIndex = screenShaders.activeIndex();
     uiState.smoothFilter = smooth;
     DebugUi_ApplyPalette(emu, uiState);
-    DebugUi_SetStatus(uiState, "F11 fullscreen | [ ] paleta | F12 sidebar");
+    DebugUi_SetStatus(uiState, "F11 fullscreen | ;/' shader | F12 sidebar");
 
-    std::cout << "Emulador iniciado. F11=fullscreen F12=sidebar | Xbox 360 suportado\n";
+    std::cout << "Emulador iniciado. Shaders: ;/'  |  F12 sidebar  |  Xbox 360 OK\n";
+    std::cout << "Shader ativo: " << ScreenShaderName(screenShaders.active()) << "\n";
     if (IsGamepadAvailable(0)) {
         std::cout << "Gamepad detectado: " << GetGamepadName(0) << "\n";
     } else {
@@ -522,6 +537,23 @@ int main(int argc, char** argv) {
                 DebugUi_ApplyPalette(emu, uiState);
                 DebugUi_SetStatus(uiState, std::string("Palette: ") + kPalettes[uiState.paletteIndex].name);
             }
+            // ; e ' (e teclas OEM equivalentes no layout US)
+            if (IsKeyPressed(KEY_SEMICOLON)) {
+                screenShaders.cyclePrev();
+                uiState.shaderIndex = screenShaders.activeIndex();
+                DebugUi_SetStatus(uiState, std::string("Shader: ") + ScreenShaderName(screenShaders.active()));
+            }
+            if (IsKeyPressed(KEY_APOSTROPHE)) {
+                screenShaders.cycleNext();
+                uiState.shaderIndex = screenShaders.activeIndex();
+                DebugUi_SetStatus(uiState, std::string("Shader: ") + ScreenShaderName(screenShaders.active()));
+            }
+        }
+
+        // Sync shader se a UI mudou o índice
+        if (uiState.shaderIndex != screenShaders.activeIndex()) {
+            screenShaders.setActiveIndex(uiState.shaderIndex);
+            uiState.shaderIndex = screenShaders.activeIndex();
         }
 
         if (IsKeyPressed(KEY_F11)) {
@@ -599,11 +631,9 @@ int main(int argc, char** argv) {
 
         const float gameLeft = 0.0f;
         const float gameTop = menuBarH;
-        DrawTexturePro(
-            screenTexture,
-            Rectangle{0, 0, static_cast<float>(SCREEN_WIDTH), static_cast<float>(SCREEN_HEIGHT)},
-            Rectangle{gameLeft, gameTop, drawW, drawH},
-            Vector2{0, 0}, 0.0f, WHITE);
+        const Rectangle src{0, 0, static_cast<float>(SCREEN_WIDTH), static_cast<float>(SCREEN_HEIGHT)};
+        const Rectangle dest{gameLeft, gameTop, drawW, drawH};
+        screenShaders.draw(screenTexture, src, dest, static_cast<float>(GetTime()));
 
         DebugUi_Draw(emu, uiState, pad, static_cast<float>(GetFPS()), scale,
                      gameLeft, gameTop, drawW, drawH);
@@ -614,6 +644,7 @@ int main(int argc, char** argv) {
     emu.saveBattery();
 
     DebugUi_Shutdown();
+    screenShaders.unload();
     UnloadAudioStream(audioStream);
     CloseAudioDevice();
     UnloadTexture(screenTexture);

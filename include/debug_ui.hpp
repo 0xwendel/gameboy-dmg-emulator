@@ -30,6 +30,7 @@ struct DebugUiState {
 
     // Display
     int paletteIndex = 0;
+    int shaderIndex = 0; // ScreenShaderId
     bool smoothFilter = false;
     bool integerScale = true;
 

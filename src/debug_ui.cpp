@@ -1,5 +1,6 @@
 #include "debug_ui.hpp"
 #include "palette.hpp"
+#include "shaders.hpp"
 
 #include "imgui.h"
 #include "rlImGui.h"
@@ -416,12 +417,23 @@ void tabEmulation(Emulator& emu, DebugUiState& state, float hostFps, int scale,
                            ImVec2(28, 18));
         if (i < 3) ImGui::SameLine();
     }
+    if (ImGui::BeginCombo("Shader", ScreenShaderName(static_cast<ScreenShaderId>(state.shaderIndex)))) {
+        for (int i = 0; i < ScreenShaderCount(); ++i) {
+            const bool sel = (i == state.shaderIndex);
+            if (ImGui::Selectable(ScreenShaderName(static_cast<ScreenShaderId>(i)), sel)) {
+                state.shaderIndex = i;
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
     ImGui::Checkbox("Smooth filter", &state.smoothFilter);
     ImGui::Checkbox("Integer scale", &state.integerScale);
 
     sectionHeader("Hotkeys");
     ImGui::BulletText("P pause   R reset   M mute");
     ImGui::BulletText("1 / 2  speed   [ ] palette");
+    ImGui::BulletText("; / '  shader prev/next");
     ImGui::BulletText("F5/F9 state  F1 SRAM");
     ImGui::BulletText("F11 fullscreen  F12 sidebar");
 }
@@ -502,6 +514,15 @@ void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
                     if (ImGui::MenuItem(kPalettes[i].name, nullptr, state.paletteIndex == i)) {
                         state.paletteIndex = i;
                         DebugUi_ApplyPalette(emu, state);
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Shader")) {
+                for (int i = 0; i < ScreenShaderCount(); ++i) {
+                    if (ImGui::MenuItem(ScreenShaderName(static_cast<ScreenShaderId>(i)),
+                                        nullptr, state.shaderIndex == i)) {
+                        state.shaderIndex = i;
                     }
                 }
                 ImGui::EndMenu();
