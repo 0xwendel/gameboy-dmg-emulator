@@ -66,6 +66,7 @@ endif()
 set(GB_SOURCES
   src/main.cpp
   src/debug_ui.cpp
+  src/shaders.cpp
   src/mmu.cpp
   src/cpu.cpp
   src/ppu.cpp
