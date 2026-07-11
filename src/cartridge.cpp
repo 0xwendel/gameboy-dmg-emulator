@@ -21,7 +21,6 @@ bool Cartridge::load(const std::vector<uint8_t>& romData) {
         return false;
     }
     m_rom = romData;
-    // Garante tamanho mínimo de 32KB para mapeamento
     if (m_rom.size() < 0x8000) {
         m_rom.resize(0x8000, 0xFF);
     }
@@ -79,7 +78,6 @@ void Cartridge::parseHeader() {
             m_hasBattery = true;
             break;
         default:
-            // Fallback: tenta MBC1 (mais comum em homebrew/antigos)
             m_type = MbcType::MBC1;
             std::cerr << "Tipo de cartucho 0x" << std::hex << (int)cartType
                       << " desconhecido; usando MBC1.\n" << std::dec;
@@ -88,7 +86,7 @@ void Cartridge::parseHeader() {
 
     uint32_t ramSize = 0;
     if (m_type == MbcType::MBC2) {
-        ramSize = 512; // 512 x 4-bit, armazenamos em 512 bytes
+        ramSize = 512;
     } else {
         switch (m_rom[0x0149]) {
             case 0x01: ramSize = 2048; break;
@@ -110,6 +108,12 @@ void Cartridge::parseHeader() {
     m_romBank5 = 1;
     m_ramBank5 = 0;
 
+    m_rtc = {};
+    m_rtcLatched = {};
+    m_rtcLatchData = 0xFF;
+    m_rtcLatchedReady = false;
+    m_rtcLastSync = std::time(nullptr);
+
     std::cout << "Cartucho: \"" << m_title << "\" tipo=";
     switch (m_type) {
         case MbcType::None: std::cout << "ROM-only"; break;
@@ -122,6 +126,7 @@ void Cartridge::parseHeader() {
     std::cout << " ROM=" << (m_rom.size() / 1024) << "KB"
               << " RAM=" << (m_ram.size() / 1024) << "KB"
               << (m_hasBattery ? " [battery]" : "")
+              << (m_hasRtc ? " [RTC]" : "")
               << "\n";
 }
 
@@ -188,7 +193,6 @@ uint32_t Cartridge::mapRamAddress(uint16_t address) const {
             if (m_bankingMode == 1) bank = m_romBankUpper;
             break;
         case MbcType::MBC3:
-            // Bancos 0x08-0x0C são RTC; tratamos como RAM bank 0 por simplicidade
             bank = (m_ramBank <= 0x03) ? m_ramBank : 0;
             break;
         case MbcType::MBC5:
@@ -203,6 +207,70 @@ uint32_t Cartridge::mapRamAddress(uint16_t address) const {
     return bank * 0x2000u + (address - 0xA000u);
 }
 
+void Cartridge::advanceRtcSeconds(uint64_t seconds) {
+    if (!m_hasRtc) return;
+    if ((m_rtc.dh & 0x40) != 0) return; // halted
+
+    for (uint64_t i = 0; i < seconds; ++i) {
+        m_rtc.s = static_cast<uint8_t>((m_rtc.s + 1) % 60);
+        if (m_rtc.s != 0) continue;
+        m_rtc.m = static_cast<uint8_t>((m_rtc.m + 1) % 60);
+        if (m_rtc.m != 0) continue;
+        m_rtc.h = static_cast<uint8_t>((m_rtc.h + 1) % 24);
+        if (m_rtc.h != 0) continue;
+
+        uint16_t days = static_cast<uint16_t>((m_rtc.dl) | ((m_rtc.dh & 0x01) << 8));
+        days = static_cast<uint16_t>(days + 1);
+        if (days > 511) {
+            days = 0;
+            m_rtc.dh |= 0x80; // carry
+        }
+        m_rtc.dl = static_cast<uint8_t>(days & 0xFF);
+        m_rtc.dh = static_cast<uint8_t>((m_rtc.dh & 0xFE) | ((days >> 8) & 0x01));
+    }
+}
+
+void Cartridge::updateRtcWallClock() {
+    if (!m_hasRtc) return;
+    const std::time_t now = std::time(nullptr);
+    if (m_rtcLastSync == 0) {
+        m_rtcLastSync = now;
+        return;
+    }
+    if (now > m_rtcLastSync) {
+        advanceRtcSeconds(static_cast<uint64_t>(now - m_rtcLastSync));
+        m_rtcLastSync = now;
+    }
+}
+
+void Cartridge::latchRtc() {
+    m_rtcLatched = m_rtc;
+    m_rtcLatchedReady = true;
+}
+
+uint8_t Cartridge::readRtc(uint8_t reg) const {
+    const RtcRegs& r = m_rtcLatchedReady ? m_rtcLatched : m_rtc;
+    switch (reg) {
+        case 0x08: return r.s;
+        case 0x09: return r.m;
+        case 0x0A: return r.h;
+        case 0x0B: return r.dl;
+        case 0x0C: return r.dh;
+        default: return 0xFF;
+    }
+}
+
+void Cartridge::writeRtc(uint8_t reg, uint8_t value) {
+    switch (reg) {
+        case 0x08: m_rtc.s = value & 0x3F; break;
+        case 0x09: m_rtc.m = value & 0x3F; break;
+        case 0x0A: m_rtc.h = value & 0x1F; break;
+        case 0x0B: m_rtc.dl = value; break;
+        case 0x0C: m_rtc.dh = value & 0xC1; break;
+        default: break;
+    }
+}
+
 uint8_t Cartridge::read(uint16_t address) const {
     if (address <= 0x7FFF) {
         uint32_t off = mapRomAddress(address);
@@ -210,7 +278,11 @@ uint8_t Cartridge::read(uint16_t address) const {
         return 0xFF;
     }
     if (address >= 0xA000 && address <= 0xBFFF) {
-        if (!m_ramEnabled || m_ram.empty()) return 0xFF;
+        if (!m_ramEnabled) return 0xFF;
+        if (m_type == MbcType::MBC3 && m_hasRtc && m_ramBank >= 0x08 && m_ramBank <= 0x0C) {
+            return readRtc(m_ramBank);
+        }
+        if (m_ram.empty()) return 0xFF;
         uint32_t off = mapRamAddress(address);
         if (off < m_ram.size()) {
             if (m_type == MbcType::MBC2) return m_ram[off] | 0xF0;
@@ -255,8 +327,13 @@ void Cartridge::write(uint16_t address, uint8_t value) {
                     if (m_romBank == 0) m_romBank = 1;
                 } else if (address <= 0x5FFF) {
                     m_ramBank = value;
+                } else {
+                    // Latch clock: 0 → 1
+                    if (m_rtcLatchData == 0x00 && value == 0x01) {
+                        latchRtc();
+                    }
+                    m_rtcLatchData = value;
                 }
-                // 0x6000-0x7FFF: latch RTC (ignorado se sem RTC completo)
                 break;
             case MbcType::MBC5:
                 if (address <= 0x1FFF) {
@@ -276,7 +353,12 @@ void Cartridge::write(uint16_t address, uint8_t value) {
     }
 
     if (address >= 0xA000 && address <= 0xBFFF) {
-        if (!m_ramEnabled || m_ram.empty()) return;
+        if (!m_ramEnabled) return;
+        if (m_type == MbcType::MBC3 && m_hasRtc && m_ramBank >= 0x08 && m_ramBank <= 0x0C) {
+            writeRtc(m_ramBank, value);
+            return;
+        }
+        if (m_ram.empty()) return;
         uint32_t off = mapRamAddress(address);
         if (off < m_ram.size()) {
             if (m_type == MbcType::MBC2) {
@@ -299,17 +381,78 @@ std::string Cartridge::defaultSavePath() const {
 }
 
 bool Cartridge::saveBattery(const std::string& path) const {
-    if (!m_hasBattery || m_ram.empty()) return false;
+    if (!m_hasBattery) return false;
+    if (m_ram.empty() && !m_hasRtc) return false;
+
     std::ofstream f(path, std::ios::binary);
     if (!f) return false;
-    f.write(reinterpret_cast<const char*>(m_ram.data()), static_cast<std::streamsize>(m_ram.size()));
+
+    if (!m_ram.empty()) {
+        f.write(reinterpret_cast<const char*>(m_ram.data()),
+                static_cast<std::streamsize>(m_ram.size()));
+    }
+
+    // Formato compatível com vários emuladores: 48 bytes RTC no final
+    if (m_hasRtc) {
+        uint8_t rtcBlob[48]{};
+        rtcBlob[0] = m_rtc.s;
+        rtcBlob[1] = m_rtc.m;
+        rtcBlob[2] = m_rtc.h;
+        rtcBlob[3] = m_rtc.dl;
+        rtcBlob[4] = m_rtc.dh;
+        rtcBlob[5] = m_rtcLatched.s;
+        rtcBlob[6] = m_rtcLatched.m;
+        rtcBlob[7] = m_rtcLatched.h;
+        rtcBlob[8] = m_rtcLatched.dl;
+        rtcBlob[9] = m_rtcLatched.dh;
+        const uint64_t ts = static_cast<uint64_t>(m_rtcLastSync);
+        for (int i = 0; i < 8; ++i) {
+            rtcBlob[16 + i] = static_cast<uint8_t>((ts >> (i * 8)) & 0xFF);
+        }
+        f.write(reinterpret_cast<const char*>(rtcBlob), 48);
+    }
     return static_cast<bool>(f);
 }
 
 bool Cartridge::loadBattery(const std::string& path) {
-    if (!m_hasBattery || m_ram.empty()) return false;
-    std::ifstream f(path, std::ios::binary);
+    if (!m_hasBattery) return false;
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) return false;
-    f.read(reinterpret_cast<char*>(m_ram.data()), static_cast<std::streamsize>(m_ram.size()));
+    const auto fileSize = static_cast<size_t>(f.tellg());
+    f.seekg(0);
+
+    size_t ramBytes = m_ram.size();
+    if (ramBytes > 0) {
+        if (fileSize < ramBytes) return false;
+        f.read(reinterpret_cast<char*>(m_ram.data()), static_cast<std::streamsize>(ramBytes));
+    }
+
+    if (m_hasRtc) {
+        const size_t rtcOff = ramBytes;
+        if (fileSize >= rtcOff + 48) {
+            uint8_t rtcBlob[48]{};
+            f.read(reinterpret_cast<char*>(rtcBlob), 48);
+            m_rtc.s = rtcBlob[0];
+            m_rtc.m = rtcBlob[1];
+            m_rtc.h = rtcBlob[2];
+            m_rtc.dl = rtcBlob[3];
+            m_rtc.dh = rtcBlob[4];
+            m_rtcLatched.s = rtcBlob[5];
+            m_rtcLatched.m = rtcBlob[6];
+            m_rtcLatched.h = rtcBlob[7];
+            m_rtcLatched.dl = rtcBlob[8];
+            m_rtcLatched.dh = rtcBlob[9];
+            uint64_t ts = 0;
+            for (int i = 0; i < 8; ++i) {
+                ts |= static_cast<uint64_t>(rtcBlob[16 + i]) << (i * 8);
+            }
+            m_rtcLastSync = static_cast<std::time_t>(ts);
+            if (m_rtcLastSync == 0) m_rtcLastSync = std::time(nullptr);
+            // Avança RTC pelo tempo real desde o save
+            updateRtcWallClock();
+        } else {
+            m_rtcLastSync = std::time(nullptr);
+        }
+    }
     return true;
 }

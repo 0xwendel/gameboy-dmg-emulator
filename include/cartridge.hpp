@@ -1,10 +1,11 @@
 #pragma once
 
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <vector>
 
-// Cartucho DMG com suporte a ROM-only, MBC1, MBC3 e MBC5 + SRAM com bateria.
+// Cartucho DMG: ROM-only, MBC1/2/3/5 + SRAM bateria + RTC MBC3.
 class Cartridge {
 public:
     enum class MbcType {
@@ -24,7 +25,11 @@ public:
     uint8_t read(uint16_t address) const;
     void write(uint16_t address, uint8_t value);
 
+    // Avança RTC com tempo de parede (chamar periodicamente no host).
+    void updateRtcWallClock();
+
     bool hasBattery() const { return m_hasBattery; }
+    bool hasRtc() const { return m_hasRtc; }
     bool saveBattery(const std::string& path) const;
     bool loadBattery(const std::string& path);
 
@@ -34,11 +39,24 @@ public:
     std::string defaultSavePath() const;
 
 private:
+    struct RtcRegs {
+        uint8_t s = 0;
+        uint8_t m = 0;
+        uint8_t h = 0;
+        uint8_t dl = 0;
+        uint8_t dh = 0; // bit0 day8, bit6 halt, bit7 carry
+    };
+
     void parseHeader();
     uint32_t romBankCount() const;
     uint32_t ramBankCount() const;
     uint32_t mapRomAddress(uint16_t address) const;
     uint32_t mapRamAddress(uint16_t address) const;
+
+    void latchRtc();
+    void advanceRtcSeconds(uint64_t seconds);
+    uint8_t readRtc(uint8_t reg) const;
+    void writeRtc(uint8_t reg, uint8_t value);
 
     std::vector<uint8_t> m_rom;
     std::vector<uint8_t> m_ram;
@@ -57,9 +75,16 @@ private:
 
     // MBC3
     uint8_t m_romBank = 1;
-    uint8_t m_ramBank = 0;
+    uint8_t m_ramBank = 0; // 0-3 RAM, 0x08-0x0C RTC
 
     // MBC5
     uint16_t m_romBank5 = 1;
     uint8_t m_ramBank5 = 0;
+
+    // RTC MBC3
+    RtcRegs m_rtc{};
+    RtcRegs m_rtcLatched{};
+    uint8_t m_rtcLatchData = 0xFF;
+    bool m_rtcLatchedReady = false;
+    std::time_t m_rtcLastSync = 0;
 };
