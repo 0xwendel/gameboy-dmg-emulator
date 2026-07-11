@@ -2,6 +2,7 @@
 
 #include "mmu.hpp"
 #include <cstdint>
+#include <vector>
 
 class PPU {
 public:
@@ -15,53 +16,56 @@ public:
     PPU();
     ~PPU() = default;
 
-    // Avança o estado da PPU com base nos M-cycles executados pela CPU
+    void reset();
     void tick(uint8_t mCycles, MMU& mmu);
 
-    // Retorna se um novo frame foi concluído (e limpa a flag)
     bool isFrameReady();
-
-    // Retorna o ponteiro para o buffer de pixels 160x144 (RGBA8888)
     const uint32_t* getFrameBuffer() const { return m_frameBuffer; }
 
+    uint8_t ly() const { return m_ly; }
+    Mode mode() const { return m_mode; }
+
+    void serialize(std::vector<uint8_t>& out) const;
+    bool deserialize(const uint8_t*& ptr, const uint8_t* end);
+
 private:
-    // Buffer de tela: 160x144 pixels de 32-bits (RGBA)
-    uint32_t m_frameBuffer[160 * 144];
+    uint32_t m_frameBuffer[160 * 144]{};
+    uint32_t m_scanlineTicks = 0;
+    uint8_t m_ly = 0;
+    Mode m_mode = ModeOAMSearch;
+    bool m_frameReady = false;
+    bool m_statInterruptLine = false;
+    bool m_lcdEnabled = true;
 
-    // Contadores de ciclo internos (medidos em dots/ticks de clock)
-    uint32_t m_scanlineTicks; 
+    // Contador interno da Window (só avança quando a window desenha).
+    uint8_t m_windowLineCounter = 0;
+    bool m_windowLineActive = false;
 
-    // Estado da PPU
-    uint8_t m_ly;       // Linha atual (0-153)
-    Mode m_mode;        // Modo de operação (0-3)
-    bool m_frameReady;  // Indica se a tela inteira foi varrida
+    uint8_t m_scanlineBGColorIndex[160]{};
 
-    // Função auxiliar para gerar cores no formato RGBA8888 (Little-Endian)
     static constexpr uint32_t makeRGBA(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 0xFF) {
         return (static_cast<uint32_t>(a) << 24) |
                (static_cast<uint32_t>(b) << 16) |
-               (static_cast<uint32_t>(g) << 8)  |
+               (static_cast<uint32_t>(g) << 8) |
                r;
     }
 
-    // Paleta de cores do Game Boy Clássico (tons de verde)
     const uint32_t PALETTE[4] = {
-        makeRGBA(0xE0, 0xF8, 0xD0), // 0: Off-White (Mais claro)
-        makeRGBA(0x88, 0xC0, 0x70), // 1: Cinza esverdeado claro
-        makeRGBA(0x34, 0x68, 0x56), // 2: Cinza esverdeado escuro
-        makeRGBA(0x08, 0x18, 0x20)  // 3: Preto esverdeado (Mais escuro)
+        makeRGBA(0xE0, 0xF8, 0xD0),
+        makeRGBA(0x88, 0xC0, 0x70),
+        makeRGBA(0x34, 0x68, 0x56),
+        makeRGBA(0x08, 0x18, 0x20)
     };
 
-    // Gera um padrão visual estático para testar o loop de renderização do Raylib
-    void generateTestPattern();
+    void fillWhite();
+    void updateStat(MMU& mmu);
+    void setMode(Mode mode, MMU& mmu);
 
-    // Métodos internos de renderização de scanlines
     void renderScanline(MMU& mmu);
     void renderBG(MMU& mmu);
     void renderWindow(MMU& mmu);
     void renderSprites(MMU& mmu);
 
-    // Estrutura para ordenar e filtrar os sprites ativos na scanline
     struct ScanlineSprite {
         int16_t x;
         int16_t y;
@@ -69,11 +73,4 @@ private:
         uint8_t attrs;
         uint8_t oamIndex;
     };
-
-    // Buffer temporário para salvar os índices de cor (0-3) do Fundo/Janela da linha atual
-    // Usado para computar a prioridade BG-para-OBJ (se o pixel do BG é transparente ou opaco)
-    uint8_t m_scanlineBGColorIndex[160];
-
-    // Estado da linha de sinal da interrupção STAT (usado para detecção de borda de subida)
-    bool m_statInterruptLine;
 };
