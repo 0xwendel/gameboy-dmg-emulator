@@ -48,6 +48,7 @@ public:
     const Cartridge& cart() const { return m_cart; }
 
     size_t popAudio(int16_t* out, size_t maxFrames) { return m_apu.popSamples(out, maxFrames); }
+    size_t audioSamplesAvailable() const { return m_apu.samplesAvailable(); }
 
     bool paused() const { return m_paused; }
     void setPaused(bool p) { m_paused = p; }

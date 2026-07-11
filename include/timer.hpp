@@ -12,6 +12,8 @@ public:
 
     void reset();
     void tick(uint8_t mCycles, MMU& mmu);
+    // Um T-cycle (compartilhado com a APU para o DIV).
+    void tickTCycle(MMU& mmu);
 
     void serialize(std::vector<uint8_t>& out) const;
     bool deserialize(const uint8_t*& ptr, const uint8_t* end);
@@ -22,5 +24,4 @@ private:
     uint8_t m_timaReloadValue = 0;
 
     static int tacBitIndex(uint8_t tac);
-    void tickTCycle(MMU& mmu);
 };

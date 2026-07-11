@@ -192,9 +192,12 @@ void MMU::writeByteDirect(uint16_t address, uint8_t value) {
             return;
         }
         if (address == 0xFF04) {
-            // Reset DIV: pode causar falling edge no TIMA (tratado no Timer via contador)
+            // Reset DIV: falling-edge no bit 12 clocka o frame sequencer da APU;
+            // TIMA também pode reagir se o bit do TAC cair.
+            const uint16_t oldDiv = m_divCounter;
             m_divCounter = 0;
             setDivHigh();
+            if (m_apu) m_apu->onDivReset(oldDiv);
             return;
         }
         if (address == 0xFF46) {

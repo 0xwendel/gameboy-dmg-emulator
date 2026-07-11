@@ -6,7 +6,7 @@
 
 namespace {
 constexpr uint32_t kStateMagic = 0x31424745; // "EGB1"
-constexpr uint32_t kStateVersion = 1;
+constexpr uint32_t kStateVersion = 2;        // v2: inclui APU
 }
 
 Emulator::Emulator() {
@@ -79,9 +79,14 @@ void Emulator::setJoypad(uint8_t directions, uint8_t actions) {
 
 void Emulator::advancePeripherals(uint8_t mCycles) {
     m_mmu.tickDMA(mCycles);
-    m_timer.tick(mCycles, m_mmu);
+    // Timer e APU avançam juntos por T-cycle (frame sequencer no DIV bit 12).
+    const uint32_t tCycles = static_cast<uint32_t>(mCycles) * 4u;
+    for (uint32_t i = 0; i < tCycles; ++i) {
+        const uint16_t divBefore = m_mmu.divCounter();
+        m_timer.tickTCycle(m_mmu);
+        m_apu.tickTCycle(divBefore, m_mmu.divCounter());
+    }
     m_ppu.tick(mCycles, m_mmu);
-    m_apu.tick(static_cast<uint32_t>(mCycles) * 4u);
 }
 
 uint8_t Emulator::stepInstruction() {
@@ -137,6 +142,7 @@ bool Emulator::saveState(const std::string& path) const {
     m_mmu.serialize(buf);
     m_ppu.serialize(buf);
     m_timer.serialize(buf);
+    m_apu.serialize(buf);
 
     std::ofstream f(path, std::ios::binary);
     if (!f) return false;
@@ -164,8 +170,10 @@ bool Emulator::loadState(const std::string& path) {
     if (!m_mmu.deserialize(ptr, end)) return false;
     if (!m_ppu.deserialize(ptr, end)) return false;
     if (!m_timer.deserialize(ptr, end)) return false;
+    if (!m_apu.deserialize(ptr, end)) return false;
 
     m_mmu.attachCartridge(&m_cart);
     m_mmu.attachAPU(&m_apu);
+    m_apu.clearSampleBuffer();
     return true;
 }
