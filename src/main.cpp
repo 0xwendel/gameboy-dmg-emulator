@@ -364,7 +364,7 @@ static void printUsage(const char* argv0) {
         << "  F5/F9           Save/Load state\n"
         << "  F1              Salvar SRAM(+RTC)\n"
         << "  F11             Fullscreen\n"
-        << "  F12             Sidebar de debug\n";
+        << "  F12             Inspector (overlay, nao redimensiona o jogo)\n";
 }
 
 int main(int argc, char** argv) {
@@ -430,13 +430,14 @@ int main(int argc, char** argv) {
 
     const int SCREEN_WIDTH = 160;
     const int SCREEN_HEIGHT = 144;
-    const int UI_SIDEBAR = 400;
+    // Janela centrada no display GB (aspecto nativo); inspector é overlay (F12).
     const int UI_MENUBAR = 28;
 
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
-    InitWindow(SCREEN_WIDTH * scale + UI_SIDEBAR,
-               std::max(SCREEN_HEIGHT * scale + UI_MENUBAR, 640),
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI);
+    InitWindow(SCREEN_WIDTH * scale,
+               SCREEN_HEIGHT * scale + UI_MENUBAR,
                TextFormat("GB DMG Emulator - %s", emu.cart().title().c_str()));
+    SetWindowMinSize(SCREEN_WIDTH * 2, SCREEN_HEIGHT * 2 + UI_MENUBAR);
     SetTargetFPS(60);
     SetExitKey(KEY_NULL);
 
@@ -466,10 +467,10 @@ int main(int argc, char** argv) {
     uiState.shaderIndex = screenShaders.activeIndex();
     uiState.smoothFilter = smooth;
     DebugUi_ApplyPalette(emu, uiState);
-    DebugUi_SetStatus(uiState, "F11 fullscreen | ;/' shader | F12 sidebar");
+    DebugUi_SetStatus(uiState, "F12 inspector  |  F11 fullscreen  |  ;/' shader");
 
-    std::cout << "Emulador iniciado. Shaders: ;/'  |  F12 sidebar  |  Xbox 360 OK\n";
-    std::cout << "Shader ativo: " << ScreenShaderName(screenShaders.active()) << "\n";
+    std::cout << "Emulador iniciado. Display centrado; F12 = inspector (overlay)\n";
+    std::cout << "Shader: " << ScreenShaderName(screenShaders.active()) << "\n";
     if (IsGamepadAvailable(0)) {
         std::cout << "Gamepad detectado: " << GetGamepadName(0) << "\n";
     } else {
@@ -562,7 +563,7 @@ int main(int argc, char** argv) {
         }
         if (IsKeyPressed(KEY_F12)) {
             DebugUi_ToggleSidebar(uiState);
-            DebugUi_SetStatus(uiState, uiState.showSidebar ? "Sidebar ON" : "Sidebar OFF");
+            DebugUi_SetStatus(uiState, uiState.showSidebar ? "Inspector ON" : "Inspector OFF");
         }
 
         if (uiState.smoothFilter != lastSmooth) {
@@ -606,31 +607,38 @@ int main(int argc, char** argv) {
         UpdateTexture(screenTexture, emu.frameBuffer());
 
         BeginDrawing();
-        ClearBackground(GetColor(0x111115FF));
+        // Letterbox: fundo neutro; o display GB fica centrado na área útil.
+        ClearBackground(GetColor(0x0B0C0EFF));
 
-        const float menuBarH = 22.0f;
-        const float sideW = DebugUi_SidebarWidth(uiState);
-        const float availW = static_cast<float>(GetScreenWidth()) - sideW;
-        const float availH = static_cast<float>(GetScreenHeight()) - menuBarH;
+        const float menuBarH = DebugUi_MenuBarHeight();
+        const float viewX = 0.0f;
+        const float viewY = menuBarH;
+        const float viewW = static_cast<float>(GetScreenWidth());
+        const float viewH = static_cast<float>(GetScreenHeight()) - menuBarH;
 
-        float drawW = static_cast<float>(SCREEN_WIDTH * scale);
-        float drawH = static_cast<float>(SCREEN_HEIGHT * scale);
+        // Encaixa 160×144 na viewport inteira (inspector NÃO rouba espaço).
+        float fitScale = 1.0f;
         if (uiState.integerScale) {
-            const int fitX = std::max(1, static_cast<int>(availW) / SCREEN_WIDTH);
-            const int fitY = std::max(1, static_cast<int>(availH) / SCREEN_HEIGHT);
-            const int fit = std::max(1, std::min(fitX, fitY));
-            drawW = static_cast<float>(SCREEN_WIDTH * fit);
-            drawH = static_cast<float>(SCREEN_HEIGHT * fit);
+            const int fitX = std::max(1, static_cast<int>(viewW) / SCREEN_WIDTH);
+            const int fitY = std::max(1, static_cast<int>(viewH) / SCREEN_HEIGHT);
+            fitScale = static_cast<float>(std::max(1, std::min(fitX, fitY)));
         } else {
-            const float sx = availW / static_cast<float>(SCREEN_WIDTH);
-            const float sy = availH / static_cast<float>(SCREEN_HEIGHT);
-            const float s = std::max(1.0f, std::min(sx, sy));
-            drawW = SCREEN_WIDTH * s;
-            drawH = SCREEN_HEIGHT * s;
+            const float sx = viewW / static_cast<float>(SCREEN_WIDTH);
+            const float sy = viewH / static_cast<float>(SCREEN_HEIGHT);
+            fitScale = std::max(1.0f, std::min(sx, sy));
         }
 
-        const float gameLeft = 0.0f;
-        const float gameTop = menuBarH;
+        const float drawW = static_cast<float>(SCREEN_WIDTH) * fitScale;
+        const float drawH = static_cast<float>(SCREEN_HEIGHT) * fitScale;
+        const float gameLeft = viewX + (viewW - drawW) * 0.5f;
+        const float gameTop = viewY + (viewH - drawH) * 0.5f;
+
+        // Bezel sutil ao redor da tela emulada
+        const float bezel = std::max(2.0f, fitScale * 0.5f);
+        DrawRectangleRec(
+            Rectangle{gameLeft - bezel, gameTop - bezel, drawW + bezel * 2.0f, drawH + bezel * 2.0f},
+            GetColor(0x16181CFF));
+
         const Rectangle src{0, 0, static_cast<float>(SCREEN_WIDTH), static_cast<float>(SCREEN_HEIGHT)};
         const Rectangle dest{gameLeft, gameTop, drawW, drawH};
         screenShaders.draw(screenTexture, src, dest, static_cast<float>(GetTime()));

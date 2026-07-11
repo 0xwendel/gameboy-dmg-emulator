@@ -24,9 +24,10 @@ struct DebugUiInput {
     const char* gamepadName = nullptr;
 };
 
-// Estado da sidebar de debug + opções de display.
+// Estado da UI de debug + opções de display.
+// O inspector é overlay: NÃO reduz a área do display do jogo.
 struct DebugUiState {
-    bool showSidebar = true;
+    bool showSidebar = false; // F12 — padrão off: foco no display GB
 
     // 0=Home 1=CPU 2=Video 3=Audio 4=Memory 5=Cart 6=Input 7=Display
     int panel = 0;
@@ -49,7 +50,11 @@ struct DebugUiState {
 void DebugUi_Init();
 void DebugUi_Shutdown();
 
+// Sempre 0: o inspector é overlay e não reserva largura do viewport do jogo.
 float DebugUi_SidebarWidth(const DebugUiState& state);
+
+// Altura da menubar ImGui (para letterbox do display).
+float DebugUi_MenuBarHeight();
 
 void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state);
 

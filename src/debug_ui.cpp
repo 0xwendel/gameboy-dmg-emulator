@@ -14,8 +14,9 @@ void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state);
 
 namespace {
 
-constexpr float kSidebarWidth = 400.0f;
-constexpr float kSidebarPad = 8.0f;
+constexpr float kInspectorWidth = 380.0f;
+constexpr float kInspectorPad = 10.0f;
+constexpr float kMenuBarApprox = 22.0f;
 
 // Accent / theme tokens
 const ImVec4 kAccent     = ImVec4(0.25f, 0.78f, 0.62f, 1.f);   // mint
@@ -584,7 +585,7 @@ void drawMenuBar(Emulator& emu, DebugUiState& state, float hostFps, float screen
     if (!ImGui::BeginMainMenuBar()) return;
 
     if (ImGui::BeginMenu("View")) {
-        ImGui::MenuItem("Sidebar", "F12", &state.showSidebar);
+        ImGui::MenuItem("Inspector", "F12", &state.showSidebar);
         ImGui::MenuItem("Smooth filter", nullptr, &state.smoothFilter);
         ImGui::MenuItem("Integer scale", nullptr, &state.integerScale);
         ImGui::Separator();
@@ -688,8 +689,13 @@ void DebugUi_ToggleSidebar(DebugUiState& state) {
     state.showSidebar = !state.showSidebar;
 }
 
-float DebugUi_SidebarWidth(const DebugUiState& state) {
-    return state.showSidebar ? (kSidebarWidth + kSidebarPad * 2.0f) : 0.0f;
+float DebugUi_SidebarWidth(const DebugUiState& /*state*/) {
+    // Overlay: o display do jogo usa a janela inteira.
+    return 0.0f;
+}
+
+float DebugUi_MenuBarHeight() {
+    return kMenuBarApprox;
 }
 
 bool DebugUi_WantCaptureKeyboard() {
@@ -726,27 +732,25 @@ void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
         return;
     }
 
-    const float sideW = kSidebarWidth;
-    const float x = screenW - sideW - kSidebarPad;
-    const float y = menuH + kSidebarPad;
-    const float h = screenH - menuH - kSidebarPad * 2.0f;
+    // Inspector flutuante (overlay): não encolhe o display do jogo.
+    // Canto superior direito, altura limitada, pode ser arrastado.
+    const float sideW = kInspectorWidth;
+    const float maxH = screenH - menuH - kInspectorPad * 2.0f;
+    const float prefH = std::min(maxH, 720.0f);
 
-    ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(sideW, h), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.97f);
+    ImGui::SetNextWindowPos(
+        ImVec2(screenW - sideW - kInspectorPad, menuH + kInspectorPad),
+        ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(sideW, prefH), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(320.0f, 280.0f),
+                                        ImVec2(sideW + 80.0f, maxH));
+    ImGui::SetNextWindowBgAlpha(0.94f);
 
     const ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoTitleBar |
         ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-    if (ImGui::Begin("##inspector", &state.showSidebar, flags)) {
-        // Header
-        ImGui::TextColored(kAccent, "Inspector");
-        ImGui::SameLine(sideW - 36.0f);
-        if (ImGui::SmallButton("x")) state.showSidebar = false;
+    if (ImGui::Begin("Inspector", &state.showSidebar, flags)) {
 
         ImGui::Spacing();
 
