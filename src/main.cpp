@@ -1,5 +1,6 @@
 #include "debug_ui.hpp"
 #include "emulator.hpp"
+#include "palette.hpp"
 #include "raylib.h"
 
 #include <algorithm>
@@ -189,12 +190,60 @@ static void testAPU() {
     std::cout << "Todos os testes unitarios da APU passaram!\n\n";
 }
 
+static void testSerial() {
+    std::cout << "Executando testes unitarios do Serial...\n";
+    Emulator emu;
+    std::vector<uint8_t> rom(0x200, 0x00);
+    rom[0x0100] = 0x00;
+    rom[0x0147] = 0x00;
+    REQUIRE(emu.loadRom(rom, ""));
+
+    emu.mmu().writeByte(0xFF01, 0xA5);
+    emu.mmu().writeByte(0xFF02, 0x81); // start + internal clock
+    REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) != 0);
+
+    // 8 bits * 512 T-cycles = 4096 T ≈ 1024 M-cycles → muitos NOPs
+    for (int i = 0; i < 5000; ++i) emu.stepInstruction();
+
+    REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) == 0);
+    REQUIRE(emu.mmu().readByte(0xFF01) == 0xFF); // cabo aberto
+    REQUIRE((emu.mmu().readByte(0xFF0F) & 0x08) != 0); // serial IF
+    std::cout << "Serial ok.\n\n";
+}
+
+static void testMBC3Rtc() {
+    std::cout << "Executando testes unitarios do MBC3 RTC...\n";
+    Cartridge cart;
+    std::vector<uint8_t> rom(0x8000, 0x00);
+    rom[0x0147] = 0x0F; // MBC3+Timer+Battery
+    rom[0x0149] = 0x02; // 8KB RAM
+    REQUIRE(cart.load(rom));
+    REQUIRE(cart.hasRtc());
+    REQUIRE(cart.hasBattery());
+
+    cart.write(0x0000, 0x0A); // enable RAM/RTC
+    cart.write(0x4000, 0x08); // select RTC S
+    cart.write(0xA000, 30);
+    cart.write(0x4000, 0x09);
+    cart.write(0xA000, 15);
+    // Latch 0->1
+    cart.write(0x6000, 0x00);
+    cart.write(0x6000, 0x01);
+    cart.write(0x4000, 0x08);
+    REQUIRE((cart.read(0xA000) & 0x3F) == 30);
+    cart.write(0x4000, 0x09);
+    REQUIRE((cart.read(0xA000) & 0x3F) == 15);
+    std::cout << "MBC3 RTC ok.\n\n";
+}
+
 static int runUnitTests() {
     testMBC1();
     testTimersAndInterrupts();
     testJoypad();
     testEIDelay();
     testAPU();
+    testSerial();
+    testMBC3Rtc();
     std::cout << "Todos os testes passaram.\n";
     return 0;
 }
@@ -207,6 +256,9 @@ static void printUsage(const char* argv0) {
         << "  --test          Roda testes unitarios e sai\n"
         << "  --scale N       Escala da tela (padrao 4)\n"
         << "  --muted         Inicia sem audio\n"
+        << "  --boot PATH     Boot ROM DMG (256 bytes, opcional)\n"
+        << "  --palette N     Paleta 0.." << (kPaletteCount - 1) << " (padrao 0 DMG Green)\n"
+        << "  --smooth        Filtro bilinear na tela\n"
         << "\nControles:\n"
         << "  Setas/WASD      D-Pad\n"
         << "  Z/K             A\n"
@@ -217,15 +269,20 @@ static void printUsage(const char* argv0) {
         << "  R               Reset\n"
         << "  M               Mute\n"
         << "  1/2             Velocidade -/+\n"
+        << "  [ / ]           Paleta anterior/proxima\n"
         << "  F5/F9           Save/Load state\n"
-        << "  F1              Salvar SRAM\n"
-        << "  F12             Mostrar/ocultar sidebar de debug\n";
+        << "  F1              Salvar SRAM(+RTC)\n"
+        << "  F11             Fullscreen\n"
+        << "  F12             Sidebar de debug\n";
 }
 
 int main(int argc, char** argv) {
     std::string romPath;
+    std::string bootPath;
     int scale = 4;
+    int paletteIndex = 0;
     bool muted = false;
+    bool smooth = false;
     bool runTests = false;
 
     for (int i = 1; i < argc; ++i) {
@@ -234,8 +291,14 @@ int main(int argc, char** argv) {
             runTests = true;
         } else if (arg == "--muted") {
             muted = true;
+        } else if (arg == "--smooth") {
+            smooth = true;
         } else if (arg == "--scale" && i + 1 < argc) {
             scale = std::max(1, std::atoi(argv[++i]));
+        } else if (arg == "--boot" && i + 1 < argc) {
+            bootPath = argv[++i];
+        } else if (arg == "--palette" && i + 1 < argc) {
+            paletteIndex = std::atoi(argv[++i]);
         } else if (arg == "--help" || arg == "-h") {
             printUsage(argv[0]);
             return 0;
@@ -252,7 +315,6 @@ int main(int argc, char** argv) {
         const int code = runUnitTests();
         if (runTests) return code;
         if (romPath.empty()) {
-            // Fallback: ROM de desenvolvimento embutida no path antigo
             romPath = "roms/Castlevania II - Belmont's Revenge (USA, Europe)/Castlevania II - Belmont's Revenge (USA, Europe).gb";
             std::cout << "Nenhuma ROM informada; tentando fallback:\n  " << romPath << "\n";
             std::cout << "Dica: " << argv[0] << " caminho/para/jogo.gb\n\n";
@@ -260,6 +322,11 @@ int main(int argc, char** argv) {
     }
 
     Emulator emu;
+    if (!bootPath.empty()) {
+        if (!emu.loadBootRom(bootPath)) {
+            std::cerr << "Continuando sem boot ROM (skip pos-boot).\n";
+        }
+    }
     if (!emu.loadRom(romPath)) {
         std::cerr << "Nao foi possivel carregar a ROM.\n";
         printUsage(argv[0]);
@@ -269,7 +336,6 @@ int main(int argc, char** argv) {
 
     const int SCREEN_WIDTH = 160;
     const int SCREEN_HEIGHT = 144;
-    // Sidebar de debug à direita (~392px) + margem
     const int UI_SIDEBAR = 400;
     const int UI_MENUBAR = 28;
 
@@ -278,29 +344,33 @@ int main(int argc, char** argv) {
                std::max(SCREEN_HEIGHT * scale + UI_MENUBAR, 640),
                TextFormat("GB DMG Emulator - %s", emu.cart().title().c_str()));
     SetTargetFPS(60);
-    SetExitKey(KEY_NULL); // Esc fica livre para ImGui / não fecha a janela
+    SetExitKey(KEY_NULL);
 
     InitAudioDevice();
-    // Buffer do stream = frames que UpdateAudioStream pode escrever por vez.
-    // Antes: buffer 1024 + write de 1470 frames → spam de WARNING STREAM.
-    constexpr int kAudioBufferFrames = 1024;
+    // 512 frames ≈ 11.6 ms/bloco: equilíbrio entre latência e underrun (estalos).
+    constexpr int kAudioBufferFrames = 512;
     SetAudioStreamBufferSizeDefault(kAudioBufferFrames);
     AudioStream audioStream = LoadAudioStream(APU::kSampleRate, 16, 2);
+    SetAudioStreamVolume(audioStream, 0.9f);
     PlayAudioStream(audioStream);
     std::vector<int16_t> audioScratch(static_cast<size_t>(kAudioBufferFrames) * 2u);
 
     Image emptyImage = GenImageColor(SCREEN_WIDTH, SCREEN_HEIGHT, BLANK);
     Texture2D screenTexture = LoadTextureFromImage(emptyImage);
     UnloadImage(emptyImage);
-    SetTextureFilter(screenTexture, TEXTURE_FILTER_POINT);
+    SetTextureFilter(screenTexture, smooth ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
 
     DebugUi_Init();
     DebugUiState uiState;
-    DebugUi_SetStatus(uiState, "Sidebar pronta (F12 mostra/oculta)");
+    uiState.paletteIndex = std::clamp(paletteIndex, 0, kPaletteCount - 1);
+    uiState.smoothFilter = smooth;
+    DebugUi_ApplyPalette(emu, uiState);
+    DebugUi_SetStatus(uiState, "F11 fullscreen | [ ] paleta | F12 sidebar");
 
-    std::cout << "Emulador iniciado com debug ImGui. F12=sidebar P=pause R=reset\n";
+    std::cout << "Emulador iniciado. F11=fullscreen F12=sidebar [/]=paleta\n";
 
     double frameAccumulator = 0.0;
+    bool lastSmooth = uiState.smoothFilter;
 
     while (!WindowShouldClose()) {
         const bool uiCapturesKeyboard = DebugUi_WantCaptureKeyboard();
@@ -356,47 +426,72 @@ int main(int argc, char** argv) {
                 if (emu.loadState(st)) DebugUi_SetStatus(uiState, "State carregado: " + st);
             }
             if (IsKeyPressed(KEY_F1)) {
-                if (emu.saveBattery()) DebugUi_SetStatus(uiState, "SRAM salva");
+                if (emu.saveBattery()) DebugUi_SetStatus(uiState, "SRAM(+RTC) salva");
+            }
+            if (IsKeyPressed(KEY_LEFT_BRACKET)) {
+                uiState.paletteIndex = (uiState.paletteIndex + kPaletteCount - 1) % kPaletteCount;
+                DebugUi_ApplyPalette(emu, uiState);
+                DebugUi_SetStatus(uiState, std::string("Palette: ") + kPalettes[uiState.paletteIndex].name);
+            }
+            if (IsKeyPressed(KEY_RIGHT_BRACKET)) {
+                uiState.paletteIndex = (uiState.paletteIndex + 1) % kPaletteCount;
+                DebugUi_ApplyPalette(emu, uiState);
+                DebugUi_SetStatus(uiState, std::string("Palette: ") + kPalettes[uiState.paletteIndex].name);
             }
         }
 
-        // F12: mostra/oculta sidebar de debug
+        if (IsKeyPressed(KEY_F11)) {
+            ToggleFullscreen();
+            DebugUi_SetStatus(uiState, IsWindowFullscreen() ? "Fullscreen" : "Windowed");
+        }
         if (IsKeyPressed(KEY_F12)) {
             DebugUi_ToggleSidebar(uiState);
             DebugUi_SetStatus(uiState, uiState.showSidebar ? "Sidebar ON" : "Sidebar OFF");
         }
 
-        // --- Emulação: N frames por frame de host conforme speed ---
+        if (uiState.smoothFilter != lastSmooth) {
+            SetTextureFilter(screenTexture,
+                             uiState.smoothFilter ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT);
+            lastSmooth = uiState.smoothFilter;
+        }
+
+        // --- Emulação ---
         frameAccumulator += emu.speed();
         int framesToRun = static_cast<int>(frameAccumulator);
-        if (framesToRun > 8) framesToRun = 8; // cap
+        if (framesToRun > 8) framesToRun = 8;
         frameAccumulator -= framesToRun;
         for (int i = 0; i < framesToRun; ++i) {
             emu.runFrame();
         }
 
-        // --- Áudio ---
-        // Stream processado: repor exatamente kAudioBufferFrames (sem overflow).
-        // Se a APU estiver adiantada demais (>250ms), descarta excesso para evitar latency.
-        constexpr size_t kMaxApuLatencyFrames = APU::kSampleRate / 4;
+        // --- Áudio: bloco 512 + fila APU ~80 ms (evita underrun e pops) ---
+        constexpr size_t kMaxApuLatencyFrames = APU::kSampleRate / 12; // ~83 ms
         if (emu.audioSamplesAvailable() > kMaxApuLatencyFrames) {
-            int16_t discard[2048];
+            int16_t discard[1024];
             while (emu.audioSamplesAvailable() > kMaxApuLatencyFrames / 2) {
-                if (emu.popAudio(discard, 1024) == 0) break;
+                if (emu.popAudio(discard, 512) == 0) break;
             }
         }
 
         if (IsAudioStreamProcessed(audioStream)) {
             if (!emu.muted()) {
                 size_t got = emu.popAudio(audioScratch.data(), static_cast<size_t>(kAudioBufferFrames));
-                for (size_t i = got * 2; i < static_cast<size_t>(kAudioBufferFrames) * 2u; ++i) {
-                    audioScratch[i] = 0;
+                // Se faltar sample, repete o último frame em vez de silêncio abrupto
+                // (silêncio a cada underrun soa como “estalos”).
+                if (got == 0) {
+                    std::fill(audioScratch.begin(), audioScratch.end(), static_cast<int16_t>(0));
+                } else if (got < static_cast<size_t>(kAudioBufferFrames)) {
+                    const int16_t lastL = audioScratch[(got - 1) * 2];
+                    const int16_t lastR = audioScratch[(got - 1) * 2 + 1];
+                    for (size_t i = got; i < static_cast<size_t>(kAudioBufferFrames); ++i) {
+                        audioScratch[i * 2] = lastL;
+                        audioScratch[i * 2 + 1] = lastR;
+                    }
                 }
                 UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
             } else {
-                // Mute: silêncio no host, drena APU para não acumular
-                int16_t discard[2048];
-                while (emu.popAudio(discard, 1024) == 1024) {
+                int16_t discard[1024];
+                while (emu.popAudio(discard, 512) == 512) {
                 }
                 std::fill(audioScratch.begin(), audioScratch.end(), static_cast<int16_t>(0));
                 UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
@@ -408,10 +503,27 @@ int main(int argc, char** argv) {
         BeginDrawing();
         ClearBackground(GetColor(0x111115FF));
 
-        // Tela GB à esquerda; sidebar ImGui fixa à direita (não sobrepõe)
         const float menuBarH = 22.0f;
-        const float drawW = static_cast<float>(SCREEN_WIDTH * scale);
-        const float drawH = static_cast<float>(SCREEN_HEIGHT * scale);
+        const float sideW = DebugUi_SidebarWidth(uiState);
+        const float availW = static_cast<float>(GetScreenWidth()) - sideW;
+        const float availH = static_cast<float>(GetScreenHeight()) - menuBarH;
+
+        float drawW = static_cast<float>(SCREEN_WIDTH * scale);
+        float drawH = static_cast<float>(SCREEN_HEIGHT * scale);
+        if (uiState.integerScale) {
+            const int fitX = std::max(1, static_cast<int>(availW) / SCREEN_WIDTH);
+            const int fitY = std::max(1, static_cast<int>(availH) / SCREEN_HEIGHT);
+            const int fit = std::max(1, std::min(fitX, fitY));
+            drawW = static_cast<float>(SCREEN_WIDTH * fit);
+            drawH = static_cast<float>(SCREEN_HEIGHT * fit);
+        } else {
+            const float sx = availW / static_cast<float>(SCREEN_WIDTH);
+            const float sy = availH / static_cast<float>(SCREEN_HEIGHT);
+            const float s = std::max(1.0f, std::min(sx, sy));
+            drawW = SCREEN_WIDTH * s;
+            drawH = SCREEN_HEIGHT * s;
+        }
+
         const float gameLeft = 0.0f;
         const float gameTop = menuBarH;
         DrawTexturePro(
