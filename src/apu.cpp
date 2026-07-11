@@ -1,6 +1,7 @@
 #include "apu.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace {
@@ -259,8 +260,8 @@ void APU::reset() {
     m_outputEnabled = true;
     m_frameSeqStep = 0;
     m_sampleTimer = 0;
-    m_hpLeft = 0;
-    m_hpRight = 0;
+    m_capLeft = 0;
+    m_capRight = 0;
     m_sampleBuffer.clear();
     m_sampleBuffer.reserve(static_cast<size_t>(kSampleRate / 5) * 2);
 }
@@ -539,14 +540,27 @@ uint8_t APU::readRegister(uint16_t address) const {
 }
 
 void APU::mixSample() {
+    // Mix linear positivo (0..15 por canal) → NR51 pan → NR50 volume →
+    // high-pass (remove DC) → ganho master com soft-clip.
+    // Antes: subtraía “centro” de 4 canais (30) mesmo com 1–2 ativos → DC
+    // enorme, high-pass “brigando” e clipping → som estourado/estranho.
+
+    auto emit = [&](double sampleL, double sampleR) {
+        auto toI16 = [](double x) -> int16_t {
+            x = std::clamp(x, -1.0, 1.0);
+            return static_cast<int16_t>(x * 28000.0);
+        };
+        m_sampleBuffer.push_back(toI16(sampleL));
+        m_sampleBuffer.push_back(toI16(sampleR));
+    };
+
     if (!m_outputEnabled || !(m_nr52 & 0x80)) {
-        // High-pass ainda decai para silêncio limpo
-        const double outL = 0.0 - m_hpLeft;
-        const double outR = 0.0 - m_hpRight;
-        m_hpLeft = 0.0 - outL * kHighPass;
-        m_hpRight = 0.0 - outR * kHighPass;
-        m_sampleBuffer.push_back(0);
-        m_sampleBuffer.push_back(0);
+        // Decai capacitores e silêncio
+        const double outL = 0.0 - m_capLeft;
+        const double outR = 0.0 - m_capRight;
+        m_capLeft = 0.0 - outL * kCapCharge;
+        m_capRight = 0.0 - outR * kCapCharge;
+        emit(0.0, 0.0);
         return;
     }
 
@@ -555,7 +569,7 @@ void APU::mixSample() {
     const uint8_t s3 = m_ch3.digitalOutput();
     const uint8_t s4 = m_ch4.digitalOutput();
 
-    // Soma digital 0..15 por canal → 0..60 max
+    // Soma digital 0..15 por canal (máx 60 se 4 canais no topo)
     int left = 0;
     int right = 0;
     if (m_nr51 & 0x10) left += s1;
@@ -567,31 +581,37 @@ void APU::mixSample() {
     if (m_nr51 & 0x80) left += s4;
     if (m_nr51 & 0x08) right += s4;
 
-    // NR50: volume 0..7 → fator (n+1)/8; VIN ignorado (sem cartucho de áudio)
-    const float leftVol = static_cast<float>(((m_nr50 >> 4) & 0x07) + 1) / 8.0f;
-    const float rightVol = static_cast<float>((m_nr50 & 0x07) + 1) / 8.0f;
+    // NR50: volume 0..7 multiplica (n+1). VIN ignorado.
+    // Faixa pós-volume: 0 .. 60*8 = 480
+    const int leftVol = ((m_nr50 >> 4) & 0x07) + 1;
+    const int rightVol = (m_nr50 & 0x07) + 1;
+    const double rawL = static_cast<double>(left * leftVol);
+    const double rawR = static_cast<double>(right * rightVol);
 
-    // Soma digital 0..60; centro ~30 com 4 canais a 7.5 → ~[-1, 1]
-    const double inL = (static_cast<double>(left) * leftVol - 30.0 * leftVol) / 60.0;
-    const double inR = (static_cast<double>(right) * rightVol - 30.0 * rightVol) / 60.0;
+    // Normaliza para ~[0, 1] com headroom (não assume DC artificial)
+    constexpr double kNorm = 1.0 / 480.0;
+    const double inL = rawL * kNorm;
+    const double inR = rawR * kNorm;
 
-    // High-pass capacitor (remove DC do caminho analógico DMG)
-    const double outL = inL - m_hpLeft;
-    const double outR = inR - m_hpRight;
-    m_hpLeft = inL - outL * kHighPass;
-    m_hpRight = inR - outR * kHighPass;
+    // High-pass capacitor (remove DC do DAC)
+    // out = in - cap; cap = in - out * charge  ⇔  cap += (in - cap) * (1-charge)? 
+    // Forma clássica de emuladores GB:
+    const double outL = inL - m_capLeft;
+    const double outR = inR - m_capRight;
+    m_capLeft = inL - outL * kCapCharge;
+    m_capRight = inR - outR * kCapCharge;
 
-    const float gain = m_volume;
-    const double sampleL = std::clamp(outL * gain, -1.0, 1.0);
-    const double sampleR = std::clamp(outR * gain, -1.0, 1.0);
+    // Soft-clip (tanh) evita hard clipping “estourado”
+    const double g = static_cast<double>(m_volume) * 1.8; // recupera nível sem estourar
+    const double sampleL = std::tanh(outL * g);
+    const double sampleR = std::tanh(outR * g);
 
-    m_sampleBuffer.push_back(static_cast<int16_t>(sampleL * 30000.0));
-    m_sampleBuffer.push_back(static_cast<int16_t>(sampleR * 30000.0));
+    emit(sampleL, sampleR);
 
-    // Limita backlog (~0.5 s) se o host não consumir
-    const size_t maxSamples = static_cast<size_t>(kSampleRate) ; // frames * 2
-    if (m_sampleBuffer.size() > maxSamples * 2) {
-        const size_t drop = m_sampleBuffer.size() - maxSamples;
+    // Limita backlog (~0.25 s)
+    const size_t maxFrames = static_cast<size_t>(kSampleRate / 4);
+    if (m_sampleBuffer.size() > maxFrames * 2) {
+        const size_t drop = m_sampleBuffer.size() - maxFrames * 2;
         m_sampleBuffer.erase(m_sampleBuffer.begin(),
                              m_sampleBuffer.begin() + static_cast<std::ptrdiff_t>(drop));
     }
@@ -708,8 +728,8 @@ void APU::serialize(std::vector<uint8_t>& out) const {
     for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((st >> (i * 8)) & 0xFF));
 
     uint64_t hl = 0, hr = 0;
-    std::memcpy(&hl, &m_hpLeft, 8);
-    std::memcpy(&hr, &m_hpRight, 8);
+    std::memcpy(&hl, &m_capLeft, 8);
+    std::memcpy(&hr, &m_capRight, 8);
     for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((hl >> (i * 8)) & 0xFF));
     for (int i = 0; i < 8; ++i) out.push_back(static_cast<uint8_t>((hr >> (i * 8)) & 0xFF));
 }
@@ -790,8 +810,8 @@ bool APU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
     for (int i = 0; i < 8; ++i) hr |= static_cast<uint64_t>(ptr[i]) << (i * 8);
     ptr += 8;
     std::memcpy(&m_sampleTimer, &st, 8);
-    std::memcpy(&m_hpLeft, &hl, 8);
-    std::memcpy(&m_hpRight, &hr, 8);
+    std::memcpy(&m_capLeft, &hl, 8);
+    std::memcpy(&m_capRight, &hr, 8);
 
     m_sampleBuffer.clear();
     return true;

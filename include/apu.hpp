@@ -133,7 +133,8 @@ private:
     uint8_t m_nr52 = 0xF1;
 
     bool m_outputEnabled = true; // mute do host (não desliga hardware)
-    float m_volume = 0.6f;
+    // Ganho master conservador (headroom para 4 canais + NR50).
+    float m_volume = 0.35f;
 
     uint8_t m_frameSeqStep = 0;
 
@@ -141,11 +142,12 @@ private:
     double m_sampleTimer = 0.0;
     static constexpr double kCyclesPerSample = 4194304.0 / kSampleRate;
 
-    // High-pass (capacitor) por canal estereo — remove DC do DAC
-    double m_hpLeft = 0.0;
-    double m_hpRight = 0.0;
-    // ~0.999958 @ 44100 Hz (constante típica de emuladores DMG)
-    static constexpr double kHighPass = 0.999958;
+    // High-pass (capacitor) — remove DC do DAC (estilo SameBoy/Gambatte)
+    double m_capLeft = 0.0;
+    double m_capRight = 0.0;
+    // ~40 Hz @ 44100 Hz: chargeFactor = exp(-0.999 * 2*pi*40/44100) ≈ 0.994
+    // Valores próximos de 1 = corte mais grave; 0.996–0.999 são comuns.
+    static constexpr double kCapCharge = 0.996;
 
     std::vector<int16_t> m_sampleBuffer;
 };
