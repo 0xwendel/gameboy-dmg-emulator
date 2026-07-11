@@ -1,9 +1,14 @@
 #include "debug_ui.hpp"
+#include "palette.hpp"
 
 #include "imgui.h"
 #include "rlImGui.h"
 
 #include <cstdio>
+#include <string>
+
+// Forward (definida após o namespace anônimo)
+void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state);
 
 namespace {
 
@@ -186,6 +191,8 @@ void tabCart(Emulator& emu, DebugUiState& state) {
     ImGui::Text("Title    %s", cart.title().empty() ? "(none)" : cart.title().c_str());
     ImGui::Text("MBC      %s", mbcTypeName(cart.type()));
     ImGui::Text("Battery  %s", cart.hasBattery() ? "yes" : "no");
+    ImGui::Text("RTC      %s", cart.hasRtc() ? "yes" : "no");
+    ImGui::Text("Boot ROM %s", emu.bootRomEnabled() ? "active path" : "skip (post-boot)");
     if (!cart.romPath().empty()) {
         ImGui::Spacing();
         ImGui::TextWrapped("ROM: %s", cart.romPath().c_str());
@@ -373,14 +380,46 @@ void tabEmulation(Emulator& emu, DebugUiState& state, float hostFps, int scale,
         ImGui::TextColored(ImVec4(0.6f, 1.f, 0.6f, 1.f), "%s", state.status.c_str());
     }
 
+    sectionHeader("Display");
+    if (ImGui::BeginCombo("Palette", kPalettes[state.paletteIndex].name)) {
+        for (int i = 0; i < kPaletteCount; ++i) {
+            const bool sel = (i == state.paletteIndex);
+            if (ImGui::Selectable(kPalettes[i].name, sel)) {
+                state.paletteIndex = i;
+                DebugUi_ApplyPalette(emu, state);
+            }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    // Preview de cores
+    for (int i = 0; i < 4; ++i) {
+        const uint32_t c = kPalettes[state.paletteIndex].colors[i];
+        ImGui::ColorButton(("##p" + std::to_string(i)).c_str(),
+                           ImVec4(((c >> 0) & 0xFF) / 255.f,
+                                  ((c >> 8) & 0xFF) / 255.f,
+                                  ((c >> 16) & 0xFF) / 255.f, 1.f),
+                           ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+                           ImVec2(28, 18));
+        if (i < 3) ImGui::SameLine();
+    }
+    ImGui::Checkbox("Smooth filter", &state.smoothFilter);
+    ImGui::Checkbox("Integer scale", &state.integerScale);
+
     sectionHeader("Hotkeys");
     ImGui::BulletText("P pause   R reset   M mute");
-    ImGui::BulletText("1 / 2  speed down/up");
-    ImGui::BulletText("F5/F9  save/load state");
-    ImGui::BulletText("F1 SRAM    F12 sidebar");
+    ImGui::BulletText("1 / 2  speed   [ ] palette");
+    ImGui::BulletText("F5/F9 state  F1 SRAM");
+    ImGui::BulletText("F11 fullscreen  F12 sidebar");
 }
 
 } // namespace
+
+void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state) {
+    if (state.paletteIndex < 0) state.paletteIndex = 0;
+    if (state.paletteIndex >= kPaletteCount) state.paletteIndex = kPaletteCount - 1;
+    emu.ppu().setPalette(kPalettes[state.paletteIndex].colors);
+}
 
 void DebugUi_Init() {
     rlImGuiSetup(true);
@@ -443,6 +482,17 @@ void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("View")) {
             ImGui::MenuItem("Debug sidebar", "F12", &state.showSidebar);
+            ImGui::MenuItem("Smooth filter", nullptr, &state.smoothFilter);
+            ImGui::MenuItem("Integer scale", nullptr, &state.integerScale);
+            if (ImGui::BeginMenu("Palette")) {
+                for (int i = 0; i < kPaletteCount; ++i) {
+                    if (ImGui::MenuItem(kPalettes[i].name, nullptr, state.paletteIndex == i)) {
+                        state.paletteIndex = i;
+                        DebugUi_ApplyPalette(emu, state);
+                    }
+                }
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Emulator")) {

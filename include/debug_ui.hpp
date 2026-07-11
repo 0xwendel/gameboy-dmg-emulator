@@ -19,15 +19,20 @@ struct DebugUiInput {
     bool keyStart = false;
 };
 
-// Estado da sidebar de debug (uma coluna, abas — sem janelas flutuantes soltas).
+// Estado da sidebar de debug + opções de display.
 struct DebugUiState {
     bool showSidebar = true;
+
+    // Display
+    int paletteIndex = 0;
+    bool smoothFilter = false;
+    bool integerScale = true;
 
     // Memory peek
     int memAddress = 0xC000;
     int memBytes = 64;
 
-    // Mensagem de status temporária (save state, SRAM, etc.)
+    // Mensagem de status temporária
     std::string status;
     float statusTimer = 0.0f;
 };
@@ -35,11 +40,11 @@ struct DebugUiState {
 void DebugUi_Init();
 void DebugUi_Shutdown();
 
-// Largura da coluna de debug (0 se oculta). Use para posicionar a tela GB.
 float DebugUi_SidebarWidth(const DebugUiState& state);
 
-// Chamar entre BeginDrawing/EndDrawing, após desenhar a tela GB.
-// gameLeft/gameTop: origem da tela GB em pixels de tela.
+// Aplica paleta selecionada na PPU se o índice mudou (chame quando paletteIndex alterar).
+void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state);
+
 void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
                   float hostFps, int scale, float gameLeft, float gameTop,
                   float gameW, float gameH);

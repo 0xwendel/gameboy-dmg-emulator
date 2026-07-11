@@ -25,6 +25,10 @@ public:
     uint8_t ly() const { return m_ly; }
     Mode mode() const { return m_mode; }
 
+    // Paleta DMG (4 cores RGBA). index 0=claro .. 3=escuro.
+    void setPalette(const uint32_t colors[4]);
+    const uint32_t* palette() const { return m_palette; }
+
     void serialize(std::vector<uint8_t>& out) const;
     bool deserialize(const uint8_t*& ptr, const uint8_t* end);
 
@@ -50,7 +54,7 @@ private:
                r;
     }
 
-    const uint32_t PALETTE[4] = {
+    uint32_t m_palette[4] = {
         makeRGBA(0xE0, 0xF8, 0xD0),
         makeRGBA(0x88, 0xC0, 0x70),
         makeRGBA(0x34, 0x68, 0x56),

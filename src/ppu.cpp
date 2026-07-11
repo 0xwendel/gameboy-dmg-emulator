@@ -22,8 +22,12 @@ void PPU::reset() {
 
 void PPU::fillWhite() {
     for (int i = 0; i < 160 * 144; ++i) {
-        m_frameBuffer[i] = PALETTE[0];
+        m_frameBuffer[i] = m_palette[0];
     }
+}
+
+void PPU::setPalette(const uint32_t colors[4]) {
+    for (int i = 0; i < 4; ++i) m_palette[i] = colors[i];
 }
 
 bool PPU::isFrameReady() {
@@ -157,7 +161,7 @@ void PPU::renderScanline(MMU& mmu) {
     for (int i = 0; i < 160; ++i) {
         m_scanlineBGColorIndex[i] = 0;
         // Se BG desligado, pixels ficam brancos (cor 0) no DMG com comportamento especial
-        m_frameBuffer[m_ly * 160 + i] = PALETTE[0];
+        m_frameBuffer[m_ly * 160 + i] = m_palette[0];
     }
 
     // No DMG, LCDC.0 desliga o background (pixels 0) e força sprites à frente
@@ -213,8 +217,8 @@ void PPU::renderBG(MMU& mmu) {
         const uint8_t colorIndex = static_cast<uint8_t>((((byteB >> bitShift) & 1) << 1) | ((byteA >> bitShift) & 1));
 
         m_scanlineBGColorIndex[x] = colorIndex;
-        const uint8_t paletteShade = (bgp >> (colorIndex * 2)) & 0x03;
-        m_frameBuffer[m_ly * 160 + x] = PALETTE[paletteShade];
+        const uint8_t m_paletteShade = (bgp >> (colorIndex * 2)) & 0x03;
+        m_frameBuffer[m_ly * 160 + x] = m_palette[m_paletteShade];
     }
 }
 
@@ -265,8 +269,8 @@ void PPU::renderWindow(MMU& mmu) {
         const uint8_t colorIndex = static_cast<uint8_t>((((byteB >> bitShift) & 1) << 1) | ((byteA >> bitShift) & 1));
 
         m_scanlineBGColorIndex[x] = colorIndex;
-        const uint8_t paletteShade = (bgp >> (colorIndex * 2)) & 0x03;
-        m_frameBuffer[m_ly * 160 + x] = PALETTE[paletteShade];
+        const uint8_t m_paletteShade = (bgp >> (colorIndex * 2)) & 0x03;
+        m_frameBuffer[m_ly * 160 + x] = m_palette[m_paletteShade];
         drew = true;
     }
 
@@ -308,8 +312,8 @@ void PPU::renderSprites(MMU& mmu) {
         const bool bgPriority = (sprite.attrs & 0x80) != 0;
         const bool yFlip = (sprite.attrs & 0x40) != 0;
         const bool xFlip = (sprite.attrs & 0x20) != 0;
-        const uint16_t paletteReg = (sprite.attrs & 0x10) ? 0xFF49 : 0xFF48;
-        const uint8_t obp = mmu.readByteDirect(paletteReg);
+        const uint16_t m_paletteReg = (sprite.attrs & 0x10) ? 0xFF49 : 0xFF48;
+        const uint8_t obp = mmu.readByteDirect(m_paletteReg);
 
         uint8_t spriteRow = static_cast<uint8_t>(m_ly - sprite.y);
         if (yFlip) spriteRow = static_cast<uint8_t>(spriteHeight - 1 - spriteRow);
@@ -343,8 +347,8 @@ void PPU::renderSprites(MMU& mmu) {
                 continue;
             }
 
-            const uint8_t paletteShade = (obp >> (colorIndex * 2)) & 0x03;
-            m_frameBuffer[m_ly * 160 + pixelX] = PALETTE[paletteShade];
+            const uint8_t m_paletteShade = (obp >> (colorIndex * 2)) & 0x03;
+            m_frameBuffer[m_ly * 160 + pixelX] = m_palette[m_paletteShade];
         }
     }
 }
