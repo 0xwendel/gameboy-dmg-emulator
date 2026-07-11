@@ -236,8 +236,21 @@ void tabJoypad(const DebugUiInput& input, Emulator& emu) {
     chip("Start", input.keyStart);
     ImGui::NewLine();
 
+    sectionHeader("Gamepad");
+    if (input.gamepadConnected) {
+        ImGui::TextColored(ImVec4(0.35f, 0.95f, 0.45f, 1.f), "Connected (#%d)", input.gamepadIndex);
+        if (input.gamepadName) {
+            ImGui::TextWrapped("%s", input.gamepadName);
+        }
+        ImGui::TextDisabled("D-Pad / L-Stick");
+        ImGui::TextDisabled("A=GB A  B/X=GB B");
+        ImGui::TextDisabled("Start=Start  Back=Select");
+    } else {
+        ImGui::TextDisabled("No gamepad (Xbox 360 / XInput)");
+    }
+
     ImGui::Spacing();
-    ImGui::TextDisabled("WASD/Arrows  Z/K=A  X/J=B");
+    ImGui::TextDisabled("Keyboard: WASD/Arrows  Z/K=A  X/J=B");
     ImGui::TextDisabled("Enter=Start  Backspace/Space=Select");
 }
 

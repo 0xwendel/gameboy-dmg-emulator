@@ -250,6 +250,86 @@ static int runUnitTests() {
 
 // -------------------- Frontend --------------------
 
+// Xbox 360 / XInput via raylib (GLFW). Preferimos o primeiro pad conectado.
+static constexpr int kMaxGamepads = 4;
+static constexpr float kStickDeadzone = 0.45f;
+
+static int findFirstGamepad() {
+    for (int i = 0; i < kMaxGamepads; ++i) {
+        if (IsGamepadAvailable(i)) return i;
+    }
+    return -1;
+}
+
+// Combina teclado + gamepad no mesmo DebugUiInput (OR dos botões).
+static void pollKeyboardPad(DebugUiInput& pad) {
+    pad.keyUp = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
+    pad.keyDown = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
+    pad.keyLeft = IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT);
+    pad.keyRight = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT);
+    pad.keyA = IsKeyDown(KEY_K) || IsKeyDown(KEY_Z);
+    pad.keyB = IsKeyDown(KEY_J) || IsKeyDown(KEY_X);
+    pad.keySelect = IsKeyDown(KEY_BACKSPACE) || IsKeyDown(KEY_SPACE);
+    pad.keyStart = IsKeyDown(KEY_ENTER);
+}
+
+static void pollXboxGamepad(DebugUiInput& pad) {
+    const int gp = findFirstGamepad();
+    pad.gamepadIndex = gp;
+    pad.gamepadConnected = (gp >= 0);
+    pad.gamepadName = nullptr;
+    if (gp < 0) return;
+
+    pad.gamepadName = GetGamepadName(gp);
+
+    // D-Pad digital
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_UP)) pad.keyUp = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) pad.keyDown = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) pad.keyLeft = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) pad.keyRight = true;
+
+    // Analógico esquerdo (Xbox 360 left stick)
+    const float lx = GetGamepadAxisMovement(gp, GAMEPAD_AXIS_LEFT_X);
+    const float ly = GetGamepadAxisMovement(gp, GAMEPAD_AXIS_LEFT_Y);
+    if (ly < -kStickDeadzone) pad.keyUp = true;
+    if (ly > kStickDeadzone) pad.keyDown = true;
+    if (lx < -kStickDeadzone) pad.keyLeft = true;
+    if (lx > kStickDeadzone) pad.keyRight = true;
+
+    // Face buttons (layout Xbox):
+    //   A (baixo)  = GB A
+    //   B (direita)= GB B
+    //   X (esquerda)= GB B (extra, comum em emuladores)
+    //   Y (cima)   = GB A (extra)
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) pad.keyA = true;  // A
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_UP)) pad.keyA = true;    // Y
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) pad.keyB = true; // B
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)) pad.keyB = true;  // X
+
+    // Start / Back (Select)
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_MIDDLE_RIGHT)) pad.keyStart = true; // Start
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_MIDDLE_LEFT)) pad.keySelect = true; // Back
+
+    // Ombros como atalhos opcionais de Select/Start (útil em alguns pads)
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) pad.keySelect = true;  // LB
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) pad.keyStart = true;  // RB
+}
+
+static void applyPadToEmu(Emulator& emu, const DebugUiInput& pad) {
+    uint8_t directions = 0x0F;
+    if (pad.keyRight) directions &= ~0x01;
+    if (pad.keyLeft) directions &= ~0x02;
+    if (pad.keyUp) directions &= ~0x04;
+    if (pad.keyDown) directions &= ~0x08;
+
+    uint8_t actions = 0x0F;
+    if (pad.keyA) actions &= ~0x01;
+    if (pad.keyB) actions &= ~0x02;
+    if (pad.keySelect) actions &= ~0x04;
+    if (pad.keyStart) actions &= ~0x08;
+    emu.setJoypad(directions, actions);
+}
+
 static void printUsage(const char* argv0) {
     std::cout
         << "Uso: " << argv0 << " [opcoes] <rom.gb>\n"
@@ -259,12 +339,19 @@ static void printUsage(const char* argv0) {
         << "  --boot PATH     Boot ROM DMG (256 bytes, opcional)\n"
         << "  --palette N     Paleta 0.." << (kPaletteCount - 1) << " (padrao 0 DMG Green)\n"
         << "  --smooth        Filtro bilinear na tela\n"
-        << "\nControles:\n"
+        << "\nControles (teclado):\n"
         << "  Setas/WASD      D-Pad\n"
         << "  Z/K             A\n"
         << "  X/J             B\n"
         << "  Enter           Start\n"
         << "  Backspace/Space Select\n"
+        << "\nControles (Xbox 360 / XInput):\n"
+        << "  D-Pad / L-Stick Direcional\n"
+        << "  A / Y           A\n"
+        << "  B / X           B\n"
+        << "  Start / RB      Start\n"
+        << "  Back / LB       Select\n"
+        << "\nEmulador:\n"
         << "  P               Pause\n"
         << "  R               Reset\n"
         << "  M               Mute\n"
@@ -347,11 +434,11 @@ int main(int argc, char** argv) {
     SetExitKey(KEY_NULL);
 
     InitAudioDevice();
-    // 512 frames ≈ 11.6 ms/bloco: equilíbrio entre latência e underrun (estalos).
-    constexpr int kAudioBufferFrames = 512;
+    // 1024 frames ≈ 23 ms/bloco: mais estável no WASAPI; menos estalos/underrun.
+    constexpr int kAudioBufferFrames = 1024;
     SetAudioStreamBufferSizeDefault(kAudioBufferFrames);
     AudioStream audioStream = LoadAudioStream(APU::kSampleRate, 16, 2);
-    SetAudioStreamVolume(audioStream, 0.9f);
+    SetAudioStreamVolume(audioStream, 1.0f);
     PlayAudioStream(audioStream);
     std::vector<int16_t> audioScratch(static_cast<size_t>(kAudioBufferFrames) * 2u);
 
@@ -367,41 +454,38 @@ int main(int argc, char** argv) {
     DebugUi_ApplyPalette(emu, uiState);
     DebugUi_SetStatus(uiState, "F11 fullscreen | [ ] paleta | F12 sidebar");
 
-    std::cout << "Emulador iniciado. F11=fullscreen F12=sidebar [/]=paleta\n";
+    std::cout << "Emulador iniciado. F11=fullscreen F12=sidebar | Xbox 360 suportado\n";
+    if (IsGamepadAvailable(0)) {
+        std::cout << "Gamepad detectado: " << GetGamepadName(0) << "\n";
+    } else {
+        std::cout << "Nenhum gamepad no start (conecte um Xbox 360 / XInput a qualquer momento).\n";
+    }
 
     double frameAccumulator = 0.0;
     bool lastSmooth = uiState.smoothFilter;
+    bool lastGamepadConnected = false;
 
     while (!WindowShouldClose()) {
         const bool uiCapturesKeyboard = DebugUi_WantCaptureKeyboard();
 
-        // --- Input (joypad sempre; hotkeys só se ImGui não capturar teclado) ---
+        // --- Input: teclado (se ImGui nao capturar) + gamepad (sempre) ---
         DebugUiInput pad{};
-        pad.keyUp = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
-        pad.keyDown = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
-        pad.keyLeft = IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT);
-        pad.keyRight = IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT);
-        pad.keyA = IsKeyDown(KEY_K) || IsKeyDown(KEY_Z);
-        pad.keyB = IsKeyDown(KEY_J) || IsKeyDown(KEY_X);
-        pad.keySelect = IsKeyDown(KEY_BACKSPACE) || IsKeyDown(KEY_SPACE);
-        pad.keyStart = IsKeyDown(KEY_ENTER);
-
-        // Enquanto digita no ImGui, não injeta joypad de teclado
         if (!uiCapturesKeyboard) {
-            uint8_t directions = 0x0F;
-            if (pad.keyRight) directions &= ~0x01;
-            if (pad.keyLeft) directions &= ~0x02;
-            if (pad.keyUp) directions &= ~0x04;
-            if (pad.keyDown) directions &= ~0x08;
+            pollKeyboardPad(pad);
+        }
+        pollXboxGamepad(pad);
+        applyPadToEmu(emu, pad);
 
-            uint8_t actions = 0x0F;
-            if (pad.keyA) actions &= ~0x01;
-            if (pad.keyB) actions &= ~0x02;
-            if (pad.keySelect) actions &= ~0x04;
-            if (pad.keyStart) actions &= ~0x08;
-            emu.setJoypad(directions, actions);
-        } else {
-            emu.setJoypad(0x0F, 0x0F);
+        if (pad.gamepadConnected != lastGamepadConnected) {
+            lastGamepadConnected = pad.gamepadConnected;
+            if (pad.gamepadConnected) {
+                const char* name = pad.gamepadName ? pad.gamepadName : "gamepad";
+                DebugUi_SetStatus(uiState, std::string("Gamepad: ") + name);
+                std::cout << "Gamepad conectado: " << name << "\n";
+            } else {
+                DebugUi_SetStatus(uiState, "Gamepad desconectado");
+                std::cout << "Gamepad desconectado.\n";
+            }
         }
 
         if (!uiCapturesKeyboard) {
@@ -464,38 +548,27 @@ int main(int argc, char** argv) {
             emu.runFrame();
         }
 
-        // --- Áudio: bloco 512 + fila APU ~80 ms (evita underrun e pops) ---
-        constexpr size_t kMaxApuLatencyFrames = APU::kSampleRate / 12; // ~83 ms
+        // --- Áudio ---
+        // Mantém um pequeno colchão na APU (~100 ms) e nunca reescreve frame
+        // incompleto com “hold” (isso gerava zumbido/zipper). Silêncio no underrun.
+        constexpr size_t kMaxApuLatencyFrames = APU::kSampleRate / 10; // ~100 ms
         if (emu.audioSamplesAvailable() > kMaxApuLatencyFrames) {
-            int16_t discard[1024];
-            while (emu.audioSamplesAvailable() > kMaxApuLatencyFrames / 2) {
-                if (emu.popAudio(discard, 512) == 0) break;
+            int16_t discard[2048];
+            while (emu.audioSamplesAvailable() > static_cast<size_t>(kAudioBufferFrames) * 2u) {
+                if (emu.popAudio(discard, 1024) == 0) break;
             }
         }
 
         if (IsAudioStreamProcessed(audioStream)) {
+            std::fill(audioScratch.begin(), audioScratch.end(), static_cast<int16_t>(0));
             if (!emu.muted()) {
-                size_t got = emu.popAudio(audioScratch.data(), static_cast<size_t>(kAudioBufferFrames));
-                // Se faltar sample, repete o último frame em vez de silêncio abrupto
-                // (silêncio a cada underrun soa como “estalos”).
-                if (got == 0) {
-                    std::fill(audioScratch.begin(), audioScratch.end(), static_cast<int16_t>(0));
-                } else if (got < static_cast<size_t>(kAudioBufferFrames)) {
-                    const int16_t lastL = audioScratch[(got - 1) * 2];
-                    const int16_t lastR = audioScratch[(got - 1) * 2 + 1];
-                    for (size_t i = got; i < static_cast<size_t>(kAudioBufferFrames); ++i) {
-                        audioScratch[i * 2] = lastL;
-                        audioScratch[i * 2 + 1] = lastR;
-                    }
-                }
-                UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
+                emu.popAudio(audioScratch.data(), static_cast<size_t>(kAudioBufferFrames));
             } else {
-                int16_t discard[1024];
-                while (emu.popAudio(discard, 512) == 512) {
+                int16_t discard[2048];
+                while (emu.popAudio(discard, 1024) == 1024) {
                 }
-                std::fill(audioScratch.begin(), audioScratch.end(), static_cast<int16_t>(0));
-                UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
             }
+            UpdateAudioStream(audioStream, audioScratch.data(), kAudioBufferFrames);
         }
 
         UpdateTexture(screenTexture, emu.frameBuffer());

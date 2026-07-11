@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <string>
 
-// Input do joypad espelhado na UI de debug.
+// Input do joypad espelhado na UI de debug (teclado + gamepad).
 struct DebugUiInput {
     bool keyUp = false;
     bool keyDown = false;
@@ -17,6 +17,11 @@ struct DebugUiInput {
     bool keyB = false;
     bool keySelect = false;
     bool keyStart = false;
+
+    // Gamepad (Xbox 360 / XInput)
+    bool gamepadConnected = false;
+    int gamepadIndex = -1;
+    const char* gamepadName = nullptr;
 };
 
 // Estado da sidebar de debug + opções de display.
