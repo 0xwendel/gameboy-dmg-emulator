@@ -33,3 +33,10 @@ desktop.ini
 
 # Game ROMs
 /roms/
+
+# ImGui runtime state
+imgui.ini
+
+# Local screenshots / captures
+screenshot*.png
+*.ppm
