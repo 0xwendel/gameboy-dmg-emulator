@@ -1,5 +1,7 @@
 # GB DMG Emulator
 
+**English** · **[Português (BR)](README.pt-BR.md)**
+
 A **Game Boy (DMG)** emulator written in C++20, with a **raylib** frontend, **Dear ImGui** debug inspector, and embedded GLSL screen shaders.
 
 Built for real gameplay: CPU, PPU, timers, joypad, MBC cartridges, stereo APU, save states, MBC3 RTC, Xbox 360 pad support, and a centered native-aspect display with post-processing.
@@ -8,7 +10,7 @@ Built for real gameplay: CPU, PPU, timers, joypad, MBC cartridges, stereo APU, s
 |---|---|
 | **Version** | 0.4.0 |
 | **Language** | C++20 |
-| **Build** | CMake ≥ 3.20 + Ninja/Make/MSVC |
+| **Build** | CMake ≥ 3.20 (Ninja, Make, or MSVC — generator depends on the environment) |
 | **Platform** | Windows (primary; dependencies are cross-platform) |
 | **Repo** | [github.com/0xwendel/gameboy-dmg-emulator](https://github.com/0xwendel/gameboy-dmg-emulator) |
 
