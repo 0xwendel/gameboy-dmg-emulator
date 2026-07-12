@@ -20,7 +20,6 @@ void CPU::reset(bool useBootRom) {
         return;
     }
 
-    // Pós-boot DMG
     m_regs.a = 0x01;
     m_regs.f = 0xB0;
     m_regs.b = 0x00;
@@ -46,7 +45,6 @@ bool CPU::getFlag(uint8_t flag) const {
 uint8_t CPU::fetchByte(MMU& mmu) {
     uint8_t byte = mmu.readByte(m_regs.pc);
     if (m_haltBug) {
-        // HALT bug: não incrementa PC neste fetch
         m_haltBug = false;
     } else {
         m_regs.pc++;
@@ -65,7 +63,6 @@ uint8_t CPU::step(MMU& mmu) {
     const uint8_t ifReg = mmu.readByte(0xFF0F);
     const uint8_t pendingInterrupts = static_cast<uint8_t>(ie & ifReg);
 
-    // Aplica EI da instrução anterior (delay de 1 instrução)
     const bool enableImeAfter = m_imeEnablePending;
     m_imeEnablePending = false;
 
@@ -77,7 +74,6 @@ uint8_t CPU::step(MMU& mmu) {
                 if (enableImeAfter) m_ime = true;
                 return 5;
             }
-            // IME off: sai do HALT e executa a próxima instrução
         } else {
             if (enableImeAfter) m_ime = true;
             return 1;

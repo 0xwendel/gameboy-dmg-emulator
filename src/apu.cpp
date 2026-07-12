@@ -12,7 +12,6 @@ constexpr uint8_t kDutyTable[4][8] = {
     {0, 1, 1, 1, 1, 1, 1, 0}, // 75%
 };
 
-// Divisor codes: 0 → 8 (não 0.5*8 em T-cycles daqui; tabela padrão emuladores)
 constexpr uint8_t kNoiseDivisors[8] = {8, 16, 32, 48, 64, 80, 96, 112};
 
 constexpr uint16_t kDivFsBit = 1u << 12;
@@ -133,7 +132,6 @@ uint8_t APU::SquareChannel::digitalOutput() const {
 }
 
 void APU::SquareChannel::tickTimer() {
-    if (!dacEnabled) return; // timer roda se DAC on em HW; simplificamos: só se enabled
     if (!enabled) return;
     if (freqTimer > 0) --freqTimer;
     if (freqTimer == 0) {
@@ -190,10 +188,8 @@ void APU::WaveChannel::tickTimer() {
 
 // ---------- Noise ----------
 uint32_t APU::NoiseChannel::period() const {
-    // divisor << shift; 32-bit evita wrap (antes: uint16 estourava com shift alto → chiado)
     const uint32_t div = kNoiseDivisors[divisorCode & 7];
     const uint32_t shift = clockShift & 0x0F;
-    // shift 14: hardware ainda conta, mas muito lento; não silenciamos
     return div << shift;
 }
 
@@ -291,7 +287,6 @@ size_t APU::samplesAvailable() const {
 
 void APU::pushSample(int16_t l, int16_t r) {
     if (m_ringFrames >= kRingCapacity) {
-        // Drop oldest frame (evita latência infinita)
         m_ringRead = (m_ringRead + 1) % kRingCapacity;
         --m_ringFrames;
     }
@@ -534,9 +529,6 @@ uint8_t APU::readRegister(uint16_t address) const {
 }
 
 void APU::mixSample() {
-    // DAC unipolar 0..15 por canal → pan NR51 → volume NR50 → high-pass → ganho linear.
-    // Sem tanh (comprimia e “sujava”) e sem centro artificial de 4 canais.
-
     if (!m_outputEnabled || !(m_nr52 & 0x80)) {
         const double outL = 0.0 - m_capLeft;
         const double outR = 0.0 - m_capRight;
@@ -562,26 +554,21 @@ void APU::mixSample() {
     if (m_nr51 & 0x80) left += s4;
     if (m_nr51 & 0x08) right += s4;
 
-    // NR50: (n+1)/8 — faixa 0..15*4*8 = 480
     const int leftVol = ((m_nr50 >> 4) & 0x07) + 1;
     const int rightVol = (m_nr50 & 0x07) + 1;
 
-    // Escala para ~[0, 1]: um canal a volume 15 e NR50=7 ≈ 15*8/480 = 0.25
     constexpr double kScale = 1.0 / 480.0;
     const double inL = static_cast<double>(left * leftVol) * kScale;
     const double inR = static_cast<double>(right * rightVol) * kScale;
 
-    // High-pass (DC block) — essencial para square unipolar
     const double hpL = inL - m_capLeft;
     const double hpR = inR - m_capRight;
     m_capLeft = inL - hpL * kCapCharge;
     m_capRight = inR - hpR * kCapCharge;
 
-    // Ganho master linear (sem soft-clip agressivo)
-    // 0.45 * ~0.5 peak típico de música ≈ confortável
     const double g = static_cast<double>(m_volume) * 2.2;
-    double outL = std::clamp(hpL * g, -1.0, 1.0);
-    double outR = std::clamp(hpR * g, -1.0, 1.0);
+    const double outL = std::clamp(hpL * g, -1.0, 1.0);
+    const double outR = std::clamp(hpR * g, -1.0, 1.0);
 
     pushSample(static_cast<int16_t>(outL * 24000.0),
                static_cast<int16_t>(outR * 24000.0));

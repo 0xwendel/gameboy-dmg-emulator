@@ -209,7 +209,7 @@ uint32_t Cartridge::mapRamAddress(uint16_t address) const {
 
 void Cartridge::advanceRtcSeconds(uint64_t seconds) {
     if (!m_hasRtc) return;
-    if ((m_rtc.dh & 0x40) != 0) return; // halted
+    if ((m_rtc.dh & 0x40) != 0) return;
 
     for (uint64_t i = 0; i < seconds; ++i) {
         m_rtc.s = static_cast<uint8_t>((m_rtc.s + 1) % 60);
@@ -223,7 +223,7 @@ void Cartridge::advanceRtcSeconds(uint64_t seconds) {
         days = static_cast<uint16_t>(days + 1);
         if (days > 511) {
             days = 0;
-            m_rtc.dh |= 0x80; // carry
+            m_rtc.dh |= 0x80;
         }
         m_rtc.dl = static_cast<uint8_t>(days & 0xFF);
         m_rtc.dh = static_cast<uint8_t>((m_rtc.dh & 0xFE) | ((days >> 8) & 0x01));
@@ -328,7 +328,6 @@ void Cartridge::write(uint16_t address, uint8_t value) {
                 } else if (address <= 0x5FFF) {
                     m_ramBank = value;
                 } else {
-                    // Latch clock: 0 → 1
                     if (m_rtcLatchData == 0x00 && value == 0x01) {
                         latchRtc();
                     }
@@ -392,7 +391,6 @@ bool Cartridge::saveBattery(const std::string& path) const {
                 static_cast<std::streamsize>(m_ram.size()));
     }
 
-    // Formato compatível com vários emuladores: 48 bytes RTC no final
     if (m_hasRtc) {
         uint8_t rtcBlob[48]{};
         rtcBlob[0] = m_rtc.s;
@@ -448,7 +446,6 @@ bool Cartridge::loadBattery(const std::string& path) {
             }
             m_rtcLastSync = static_cast<std::time_t>(ts);
             if (m_rtcLastSync == 0) m_rtcLastSync = std::time(nullptr);
-            // Avança RTC pelo tempo real desde o save
             updateRtcWallClock();
         } else {
             m_rtcLastSync = std::time(nullptr);

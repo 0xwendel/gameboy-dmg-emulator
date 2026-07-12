@@ -15,15 +15,10 @@ void Serial::writeSB(uint8_t value) {
 
 void Serial::writeSC(uint8_t value) {
     m_sc = static_cast<uint8_t>(0x7E | (value & 0x81));
-    // Bit 7 = start, bit 0 = internal clock
     if ((value & 0x80) != 0) {
         m_transferring = true;
         m_bitsLeft = 8;
         m_cycleAcc = 0;
-        // Clock externo sem peer: emuladores costumam completar com 0xFF
-        // imediatamente ou nunca. Completamos se clock externo (bit0=0)
-        // com 0xFF — jogos single-player raramente usam external.
-        // Clock externo: conclusão no próximo tick (0xFF no cabo).
     }
 }
 
@@ -34,7 +29,6 @@ uint8_t Serial::readSC() const {
 void Serial::tick(uint32_t tCycles, MMU& mmu) {
     if (!m_transferring) return;
 
-    // Clock externo sem peer: completa no primeiro tick
     if ((m_sc & 0x01) == 0) {
         m_sb = 0xFF;
         m_transferring = false;
@@ -47,13 +41,12 @@ void Serial::tick(uint32_t tCycles, MMU& mmu) {
     m_cycleAcc += static_cast<int>(tCycles);
     while (m_transferring && m_cycleAcc >= kCyclesPerBit) {
         m_cycleAcc -= kCyclesPerBit;
-        // Shift out MSB, shift in 0xFF from open cable
         m_sb = static_cast<uint8_t>((m_sb << 1) | 0x01);
         --m_bitsLeft;
         if (m_bitsLeft <= 0) {
             m_transferring = false;
             m_sc &= static_cast<uint8_t>(~0x80);
-            mmu.io()[0x0F] |= 0x08; // Serial IRQ
+            mmu.io()[0x0F] |= 0x08;
         }
     }
 }

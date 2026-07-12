@@ -62,10 +62,9 @@ void MMU::attachAPU(APU* apu) {
 }
 
 void MMU::applyPostBootState() {
-    // Valores típicos do DMG após a boot ROM
-    m_io[0x05] = 0x00; // TIMA
-    m_io[0x06] = 0x00; // TMA
-    m_io[0x07] = 0x00; // TAC
+    m_io[0x05] = 0x00;
+    m_io[0x06] = 0x00;
+    m_io[0x07] = 0x00;
     m_io[0x10] = 0x80;
     m_io[0x11] = 0xBF;
     m_io[0x12] = 0xF3;
@@ -84,21 +83,21 @@ void MMU::applyPostBootState() {
     m_io[0x24] = 0x77;
     m_io[0x25] = 0xF3;
     m_io[0x26] = 0xF1;
-    m_io[0x40] = 0x91; // LCDC
-    m_io[0x41] = 0x85; // STAT
-    m_io[0x42] = 0x00; // SCY
-    m_io[0x43] = 0x00; // SCX
-    m_io[0x44] = 0x00; // LY
-    m_io[0x45] = 0x00; // LYC
-    m_io[0x47] = 0xFC; // BGP
-    m_io[0x48] = 0xFF; // OBP0
-    m_io[0x49] = 0xFF; // OBP1
-    m_io[0x4A] = 0x00; // WY
-    m_io[0x4B] = 0x00; // WX
-    m_io[0x0F] = 0xE1; // IF
+    m_io[0x40] = 0x91;
+    m_io[0x41] = 0x85;
+    m_io[0x42] = 0x00;
+    m_io[0x43] = 0x00;
+    m_io[0x44] = 0x00;
+    m_io[0x45] = 0x00;
+    m_io[0x47] = 0xFC;
+    m_io[0x48] = 0xFF;
+    m_io[0x49] = 0xFF;
+    m_io[0x4A] = 0x00;
+    m_io[0x4B] = 0x00;
+    m_io[0x0F] = 0xE1;
     m_ie = 0x00;
     m_bootRomActive = false;
-    m_divCounter = 0xABCC; // valor comum pós-boot (aprox.)
+    m_divCounter = 0xABCC;
     setDivHigh();
 }
 
@@ -132,7 +131,6 @@ void MMU::startDMA(uint8_t page) {
 
 void MMU::tickDMA(uint8_t mCycles) {
     for (uint8_t i = 0; i < mCycles && m_dmaActive; ++i) {
-        // Durante DMA, a fonte é lida do barramento (exceto que OAM destino é direto)
         uint8_t value = readByteDirect(static_cast<uint16_t>(m_dmaSource + m_dmaIndex));
         m_oam[m_dmaIndex] = value;
         m_dmaIndex++;
@@ -143,7 +141,6 @@ void MMU::tickDMA(uint8_t mCycles) {
 }
 
 uint8_t MMU::readByteDirect(uint16_t address) const {
-    // Boot ROM mapeada em 0x0000-0x00FF enquanto ativa
     if (m_bootRomActive && address <= 0x00FF) {
         return m_bootRom[address];
     }
@@ -187,7 +184,7 @@ uint8_t MMU::readByteDirect(uint16_t address) const {
             return static_cast<uint8_t>(m_divCounter >> 8);
         }
         if (address == 0xFF0F) {
-            return m_io[0x0F] | 0xE0; // bits superiores abertos
+            return m_io[0x0F] | 0xE0;
         }
         return m_io[address - 0xFF00];
     }
@@ -240,8 +237,6 @@ void MMU::writeByteDirect(uint16_t address, uint8_t value) {
             return;
         }
         if (address == 0xFF04) {
-            // Reset DIV: falling-edge no bit 12 clocka o frame sequencer da APU;
-            // TIMA também pode reagir se o bit do TAC cair.
             const uint16_t oldDiv = m_divCounter;
             m_divCounter = 0;
             setDivHigh();
@@ -263,12 +258,10 @@ void MMU::writeByteDirect(uint16_t address, uint8_t value) {
             return;
         }
         if (address == 0xFF41) {
-            // Bits 0-2 read-only (mode + coincidence); preserva
             m_io[0x41] = static_cast<uint8_t>((m_io[0x41] & 0x07) | (value & 0x78) | 0x80);
             return;
         }
         if (address == 0xFF44) {
-            // LY read-only
             return;
         }
         if (address == 0xFF0F) {
@@ -288,8 +281,6 @@ void MMU::writeByteDirect(uint16_t address, uint8_t value) {
 }
 
 uint8_t MMU::readByte(uint16_t address) const {
-    // Durante DMA, CPU só acessa HRAM de forma confiável; simplificamos
-    // bloqueando VRAM/OAM conforme modo da PPU.
     if (address >= 0x8000 && address <= 0x9FFF && vramBlocked()) {
         return 0xFF;
     }
@@ -370,7 +361,6 @@ bool MMU::deserialize(const uint8_t*& ptr, const uint8_t* end) {
     m_dmaSource = static_cast<uint16_t>(ptr[0] | (ptr[1] << 8)); ptr += 2;
     m_dmaIndex = *ptr++;
     m_ppuMode = static_cast<PpuAccessMode>(*ptr++);
-    // v3+: boot flag + serial
     if (end - ptr >= 1 + 9) {
         m_bootRomActive = (*ptr++ != 0) && m_bootRomLoaded;
         if (!m_serial.deserialize(ptr, end)) return false;

@@ -5,8 +5,8 @@
 #include <iostream>
 
 namespace {
-constexpr uint32_t kStateMagic = 0x31424745; // "EGB1"
-constexpr uint32_t kStateVersion = 3;        // v3: serial + boot flag
+constexpr uint32_t kStateMagic = 0x31424745; // EGB1
+constexpr uint32_t kStateVersion = 3;
 }
 
 Emulator::Emulator() {
@@ -75,7 +75,6 @@ void Emulator::reset() {
     if (m_useBootRom && m_mmu.bootRomLoaded()) {
         m_mmu.enableBootRom(true);
         m_cpu.reset(true);
-        // Estado inicial cru: I/O zerado (boot ROM configura)
         m_apu.reset();
     } else {
         m_mmu.enableBootRom(false);
@@ -128,7 +127,6 @@ void Emulator::runFrame() {
 bool Emulator::saveBattery() const {
     if (!m_cart.hasBattery()) return false;
     const std::string path = m_cart.defaultSavePath();
-    // Atualiza RTC antes de gravar (const_cast seguro: só relógio de parede)
     const_cast<Cartridge&>(m_cart).updateRtcWallClock();
     if (m_cart.saveBattery(path)) {
         std::cout << "SRAM" << (m_cart.hasRtc() ? "+RTC" : "") << " salva em " << path << "\n";
