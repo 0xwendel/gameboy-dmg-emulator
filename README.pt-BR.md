@@ -8,7 +8,7 @@ Feito para jogar de verdade: CPU, PPU, timers, joypad, cartuchos MBC, APU estér
 
 | | |
 |---|---|
-| **Versão** | 0.4.0 |
+| **Versão** | 0.4.1 |
 | **Linguagem** | C++20 |
 | **Build** | CMake ≥ 3.20 (Ninja, Make ou MSVC — o gerador depende do ambiente) |
 | **Plataforma** | Windows (principal; dependências multiplataforma) |

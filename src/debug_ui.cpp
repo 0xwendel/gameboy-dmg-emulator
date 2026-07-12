@@ -588,7 +588,7 @@ void drawAboutModal(DebugUiState& state) {
     if (ImGui::BeginPopupModal("About##about_modal", &state.showAbout,
                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
         ImGui::TextColored(kAccent, "GB DMG Emulator");
-        ImGui::Text("Version 0.4.0");
+        ImGui::Text("Version 0.4.1");
         ImGui::Spacing();
         ImGui::TextWrapped(
             "A Game Boy (DMG) emulator written in C++20, "
