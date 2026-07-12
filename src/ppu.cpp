@@ -76,7 +76,7 @@ void PPU::tick(uint8_t mCycles, MMU& mmu) {
 
     if (!lcdOn) {
         if (m_lcdEnabled) {
-            // LCD acabou de desligar: reseta estado e limpa tela
+            // LCD just turned off: reset state and clear the screen
             m_lcdEnabled = false;
             m_scanlineTicks = 0;
             m_ly = 0;
@@ -87,8 +87,8 @@ void PPU::tick(uint8_t mCycles, MMU& mmu) {
             fillWhite();
             m_statInterruptLine = false;
         }
-        // Com LCD off o hardware não gera VBlank; ainda assim sinalizamos
-        // frames virtuais (~70224 dots) para o host não travar.
+        // With LCD off the hardware does not generate VBlank; still signal
+        // virtual frames (~70224 dots) so the host does not stall.
         m_scanlineTicks += static_cast<uint32_t>(mCycles) * 4u;
         if (m_scanlineTicks >= 70224u) {
             m_scanlineTicks -= 70224u;
@@ -98,7 +98,7 @@ void PPU::tick(uint8_t mCycles, MMU& mmu) {
     }
 
     if (!m_lcdEnabled) {
-        // LCD religado
+        // LCD turned back on
         m_lcdEnabled = true;
         m_scanlineTicks = 0;
         m_ly = 0;
@@ -160,11 +160,11 @@ void PPU::renderScanline(MMU& mmu) {
 
     for (int i = 0; i < 160; ++i) {
         m_scanlineBGColorIndex[i] = 0;
-        // Se BG desligado, pixels ficam brancos (cor 0) no DMG com comportamento especial
+        // If BG is off, pixels stay white (color 0) on DMG with special behavior
         m_frameBuffer[m_ly * 160 + i] = m_palette[0];
     }
 
-    // No DMG, LCDC.0 desliga o background (pixels 0) e força sprites à frente
+    // On DMG, LCDC.0 disables the background (color 0) and forces sprites in front
     if (lcdc & 0x01) {
         renderBG(mmu);
     }
@@ -232,7 +232,7 @@ void PPU::renderWindow(MMU& mmu) {
         return;
     }
 
-    // Precisa de pelo menos um pixel da window na linha
+    // Need at least one window pixel on this scanline
     const int16_t windowXStart = static_cast<int16_t>(wx) - 7;
     if (windowXStart >= 160) return;
 
@@ -281,7 +281,7 @@ void PPU::renderSprites(MMU& mmu) {
     const uint8_t lcdc = mmu.io()[0x40];
     const bool is8x16 = (lcdc & 0x04) != 0;
     const uint8_t spriteHeight = is8x16 ? 16 : 8;
-    // No DMG, se LCDC.0=0, sprites sempre têm prioridade sobre o "BG"
+    // On DMG, if LCDC.0=0, sprites always have priority over the "BG"
     const bool bgMasterPriority = (lcdc & 0x01) != 0;
 
     std::vector<ScanlineSprite> visibleSprites;

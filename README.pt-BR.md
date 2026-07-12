@@ -107,8 +107,8 @@ cmake --build build --config Release
 Binário típico:
 
 ```text
-build/gb_emulator.exe    # Windows
-build/gb_emulator        # Unix
+build/gb-dmg.exe    # Windows
+build/gb-dmg        # Unix
 ```
 
 Se existir `roms/` na raiz, o CMake copia para o lado do executável (dev). **Não commite ROMs comerciais** (veja [Legal](#legal)).
@@ -119,18 +119,18 @@ Se existir `roms/` na raiz, o CMake copia para o lado do executável (dev). **N�
 
 ```bash
 # Jogo
-./build/gb_emulator.exe "caminho/para/jogo.gb"
+./build/gb-dmg.exe "caminho/para/jogo.gb"
 
 # Opções comuns
-./build/gb_emulator.exe --scale 4 --shader 4 --palette 0 jogo.gb
-./build/gb_emulator.exe --muted --smooth jogo.gb
-./build/gb_emulator.exe --boot dmg_boot.bin jogo.gb
+./build/gb-dmg.exe --scale 4 --shader 4 --palette 0 jogo.gb
+./build/gb-dmg.exe --muted --smooth jogo.gb
+./build/gb-dmg.exe --boot dmg_boot.bin jogo.gb
 
 # Testes
-./build/gb_emulator.exe --test
+./build/gb-dmg.exe --test
 
 # Ajuda
-./build/gb_emulator.exe --help
+./build/gb-dmg.exe --help
 ```
 
 ### CLI
@@ -272,7 +272,7 @@ Frame de host (resumo):
 ## Testes
 
 ```bash
-./build/gb_emulator.exe --test
+./build/gb-dmg.exe --test
 ```
 
 Cobertura atual:
@@ -306,7 +306,7 @@ Opcional. Sem `--boot`, inicia em estado **pós-boot** (PC = `0x0100`).
 Com dump legítimo de boot DMG (256 bytes):
 
 ```bash
-./build/gb_emulator.exe --boot dmg_boot.bin jogo.gb
+./build/gb-dmg.exe --boot dmg_boot.bin jogo.gb
 ```
 
 Mapeia `0x0000–0x00FF` até escrita em `FF50`.  

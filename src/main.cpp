@@ -15,14 +15,14 @@
 #define REQUIRE(cond)                                                          \
     do {                                                                       \
         if (!(cond)) {                                                         \
-            std::cerr << "REQUIRE falhou: " << #cond << "  (" << __FILE__      \
+            std::cerr << "REQUIRE failed: " << #cond << "  (" << __FILE__      \
                       << ":" << __LINE__ << ")\n";                             \
             std::abort();                                                      \
         }                                                                      \
     } while (0)
 
 static void testMBC1() {
-    std::cout << "Executando testes unitarios do MBC1...\n";
+    std::cout << "Running MBC1 unit tests...\n";
 
     Cartridge cart;
     std::vector<uint8_t> mockROM(64 * 1024, 0x00);
@@ -47,11 +47,11 @@ static void testMBC1() {
     REQUIRE(cart.read(0xA000) == 0x77);
     cart.write(0x0000, 0x00);
     REQUIRE(cart.read(0xA000) == 0xFF);
-    std::cout << "Todos os testes unitarios do MBC1 passaram!\n\n";
+    std::cout << "All MBC1 unit tests passed.\n\n";
 }
 
 static void testTimersAndInterrupts() {
-    std::cout << "Executando testes unitarios de Timers e Interrupcoes...\n";
+    std::cout << "Running timer/interrupt unit tests...\n";
 
     Emulator emu;
     std::vector<uint8_t> mockROM(0x200, 0x00);
@@ -77,15 +77,15 @@ static void testTimersAndInterrupts() {
     }
 
     if ((emu.mmu().io()[0x0F] & 0x04) || emu.cpu().getRegs().pc == 0x0050) {
-        std::cout << "Timer/IRQ basico ok (IF ou vetor atingido).\n";
+        std::cout << "Timer/IRQ basic OK (IF set or vector reached).\n";
     } else {
-        std::cout << "Timer avanco verificado (TIMA=" << (int)emu.mmu().io()[0x05] << ").\n";
+        std::cout << "Timer tick verified (TIMA=" << (int)emu.mmu().io()[0x05] << ").\n";
     }
-    std::cout << "Todos os testes unitarios de Timers e Interrupcoes passaram!\n\n";
+    std::cout << "All timer/interrupt unit tests passed.\n\n";
 }
 
 static void testJoypad() {
-    std::cout << "Executando testes unitarios do Joypad...\n";
+    std::cout << "Running joypad unit tests...\n";
     MMU mmu;
     mmu.reset();
     REQUIRE((mmu.readByte(0xFF00) & 0x0F) == 0x0F);
@@ -102,11 +102,11 @@ static void testJoypad() {
     mmu.writeByte(0xFF0F, 0x00);
     mmu.setJoypadState(0x08, 0x06);
     REQUIRE((mmu.readByte(0xFF0F) & 0x10) != 0);
-    std::cout << "Todos os testes unitarios do Joypad passaram!\n\n";
+    std::cout << "All joypad unit tests passed.\n\n";
 }
 
 static void testEIDelay() {
-    std::cout << "Executando teste de EI delay...\n";
+    std::cout << "Running EI delay test...\n";
     Emulator emu;
     std::vector<uint8_t> rom(0x200, 0x00);
     rom[0x100] = 0xFB;
@@ -119,11 +119,11 @@ static void testEIDelay() {
     REQUIRE(emu.cpu().getIme() == false);
     emu.stepInstruction();
     REQUIRE(emu.cpu().getIme() == true);
-    std::cout << "EI delay ok.\n\n";
+    std::cout << "EI delay OK.\n\n";
 }
 
 static void testAPU() {
-    std::cout << "Executando testes unitarios da APU...\n";
+    std::cout << "Running APU unit tests...\n";
 
     Emulator emu;
     std::vector<uint8_t> rom(0x200, 0x00);
@@ -171,11 +171,11 @@ static void testAPU() {
     for (int i = 0; i < 50000; ++i) emu.stepInstruction();
     REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) == 0);
 
-    std::cout << "Todos os testes unitarios da APU passaram!\n\n";
+    std::cout << "All APU unit tests passed.\n\n";
 }
 
 static void testSerial() {
-    std::cout << "Executando testes unitarios do Serial...\n";
+    std::cout << "Running serial unit tests...\n";
     Emulator emu;
     std::vector<uint8_t> rom(0x200, 0x00);
     rom[0x0100] = 0x00;
@@ -191,11 +191,11 @@ static void testSerial() {
     REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) == 0);
     REQUIRE(emu.mmu().readByte(0xFF01) == 0xFF);
     REQUIRE((emu.mmu().readByte(0xFF0F) & 0x08) != 0);
-    std::cout << "Serial ok.\n\n";
+    std::cout << "Serial OK.\n\n";
 }
 
 static void testMBC3Rtc() {
-    std::cout << "Executando testes unitarios do MBC3 RTC...\n";
+    std::cout << "Running MBC3 RTC unit tests...\n";
     Cartridge cart;
     std::vector<uint8_t> rom(0x8000, 0x00);
     rom[0x0147] = 0x0F; // MBC3+Timer+Battery
@@ -215,7 +215,7 @@ static void testMBC3Rtc() {
     REQUIRE((cart.read(0xA000) & 0x3F) == 30);
     cart.write(0x4000, 0x09);
     REQUIRE((cart.read(0xA000) & 0x3F) == 15);
-    std::cout << "MBC3 RTC ok.\n\n";
+    std::cout << "MBC3 RTC OK.\n\n";
 }
 
 static int runUnitTests() {
@@ -226,7 +226,7 @@ static int runUnitTests() {
     testAPU();
     testSerial();
     testMBC3Rtc();
-    std::cout << "Todos os testes passaram.\n";
+    std::cout << "All tests passed.\n";
     return 0;
 }
 
@@ -300,38 +300,38 @@ static void applyPadToEmu(Emulator& emu, const DebugUiInput& pad) {
 
 static void printUsage(const char* argv0) {
     std::cout
-        << "Uso: " << argv0 << " [opcoes] <rom.gb>\n"
-        << "  --test          Roda testes unitarios e sai\n"
-        << "  --scale N       Escala da tela (padrao 4)\n"
-        << "  --muted         Inicia sem audio\n"
-        << "  --boot PATH     Boot ROM DMG (256 bytes, opcional)\n"
-        << "  --palette N     Paleta 0.." << (kPaletteCount - 1) << " (padrao 0 DMG Green)\n"
+        << "Usage: " << argv0 << " [options] <rom.gb>\n"
+        << "  --test          Run unit tests and exit\n"
+        << "  --scale N       Display scale (default 4)\n"
+        << "  --muted         Start with audio muted\n"
+        << "  --boot PATH     DMG boot ROM (256 bytes, optional)\n"
+        << "  --palette N     Palette 0.." << (kPaletteCount - 1) << " (default 0 DMG Green)\n"
         << "  --shader N      Shader 0.." << (ScreenShaderCount() - 1)
         << " (0=None 1=Scanlines 2=LCD 3=Matrix 4=CRT 5=Glow)\n"
-        << "  --smooth        Filtro bilinear na tela\n"
-        << "\nControles (teclado):\n"
-        << "  Setas/WASD      D-Pad\n"
+        << "  --smooth        Bilinear filter on the display\n"
+        << "\nControls (keyboard):\n"
+        << "  Arrows/WASD     D-Pad\n"
         << "  Z/K             A\n"
         << "  X/J             B\n"
         << "  Enter           Start\n"
         << "  Backspace/Space Select\n"
-        << "\nControles (Xbox 360 / XInput):\n"
-        << "  D-Pad / L-Stick Direcional\n"
+        << "\nControls (Xbox 360 / XInput):\n"
+        << "  D-Pad / L-Stick Directional\n"
         << "  A / Y           A\n"
         << "  B / X           B\n"
         << "  Start / RB      Start\n"
         << "  Back / LB       Select\n"
-        << "\nEmulador:\n"
+        << "\nEmulator:\n"
         << "  P               Pause\n"
         << "  R               Reset\n"
         << "  M               Mute\n"
-        << "  1/2             Velocidade -/+\n"
-        << "  [ / ]           Paleta anterior/proxima\n"
-        << "  ; / '           Shader anterior/proximo\n"
+        << "  1/2             Speed -/+\n"
+        << "  [ / ]           Previous/next palette\n"
+        << "  ; / '           Previous/next shader\n"
         << "  F5/F9           Save/Load state\n"
-        << "  F1              Salvar SRAM(+RTC)\n"
+        << "  F1              Save SRAM(+RTC)\n"
         << "  F11             Fullscreen\n"
-        << "  F12             Inspector (overlay, nao redimensiona o jogo)\n";
+        << "  F12             Inspector (overlay, does not resize the game)\n";
 }
 
 int main(int argc, char** argv) {
@@ -366,7 +366,7 @@ int main(int argc, char** argv) {
         } else if (!arg.empty() && arg[0] != '-') {
             romPath = arg;
         } else {
-            std::cerr << "Argumento desconhecido: " << arg << "\n";
+            std::cerr << "Unknown argument: " << arg << "\n";
             printUsage(argv[0]);
             return 1;
         }
@@ -377,19 +377,19 @@ int main(int argc, char** argv) {
         if (runTests) return code;
         if (romPath.empty()) {
             romPath = "roms/Castlevania II - Belmont's Revenge (USA, Europe)/Castlevania II - Belmont's Revenge (USA, Europe).gb";
-            std::cout << "Nenhuma ROM informada; tentando fallback:\n  " << romPath << "\n";
-            std::cout << "Dica: " << argv[0] << " caminho/para/jogo.gb\n\n";
+            std::cout << "No ROM specified; trying fallback:\n  " << romPath << "\n";
+            std::cout << "Tip: " << argv[0] << " path/to/game.gb\n\n";
         }
     }
 
     Emulator emu;
     if (!bootPath.empty()) {
         if (!emu.loadBootRom(bootPath)) {
-            std::cerr << "Continuando sem boot ROM (skip pos-boot).\n";
+            std::cerr << "Continuing without boot ROM (post-boot skip).\n";
         }
     }
     if (!emu.loadRom(romPath)) {
-        std::cerr << "Nao foi possivel carregar a ROM.\n";
+        std::cerr << "Could not load ROM.\n";
         printUsage(argv[0]);
         return 1;
     }
@@ -422,7 +422,7 @@ int main(int argc, char** argv) {
 
     ScreenShaders screenShaders;
     if (!screenShaders.load()) {
-        std::cerr << "Aviso: falha ao carregar shaders; usando None.\n";
+        std::cerr << "Warning: failed to load shaders; using None.\n";
     }
     screenShaders.setActiveIndex(std::clamp(shaderIndex, 0, ScreenShaderCount() - 1));
 
@@ -434,12 +434,12 @@ int main(int argc, char** argv) {
     DebugUi_ApplyPalette(emu, uiState);
     DebugUi_SetStatus(uiState, "F12 inspector  |  F11 fullscreen  |  ;/' shader");
 
-    std::cout << "Emulador iniciado. Display centrado; F12 = inspector (overlay)\n";
+    std::cout << "Emulator started. Centered display; F12 = inspector (overlay)\n";
     std::cout << "Shader: " << ScreenShaderName(screenShaders.active()) << "\n";
     if (IsGamepadAvailable(0)) {
-        std::cout << "Gamepad detectado: " << GetGamepadName(0) << "\n";
+        std::cout << "Gamepad detected: " << GetGamepadName(0) << "\n";
     } else {
-        std::cout << "Nenhum gamepad no start (conecte um Xbox 360 / XInput a qualquer momento).\n";
+        std::cout << "No gamepad at start (plug in an Xbox 360 / XInput pad anytime).\n";
     }
 
     double frameAccumulator = 0.0;
@@ -461,10 +461,10 @@ int main(int argc, char** argv) {
             if (pad.gamepadConnected) {
                 const char* name = pad.gamepadName ? pad.gamepadName : "gamepad";
                 DebugUi_SetStatus(uiState, std::string("Gamepad: ") + name);
-                std::cout << "Gamepad conectado: " << name << "\n";
+                std::cout << "Gamepad connected: " << name << "\n";
             } else {
-                DebugUi_SetStatus(uiState, "Gamepad desconectado");
-                std::cout << "Gamepad desconectado.\n";
+                DebugUi_SetStatus(uiState, "Gamepad disconnected");
+                std::cout << "Gamepad disconnected.\n";
             }
         }
 
@@ -483,14 +483,14 @@ int main(int argc, char** argv) {
             if (IsKeyPressed(KEY_TWO)) emu.setSpeed(emu.speed() * 2.0f);
             if (IsKeyPressed(KEY_F5)) {
                 const std::string st = emu.cart().defaultSavePath() + ".state";
-                if (emu.saveState(st)) DebugUi_SetStatus(uiState, "State salvo: " + st);
+                if (emu.saveState(st)) DebugUi_SetStatus(uiState, "State saved: " + st);
             }
             if (IsKeyPressed(KEY_F9)) {
                 const std::string st = emu.cart().defaultSavePath() + ".state";
-                if (emu.loadState(st)) DebugUi_SetStatus(uiState, "State carregado: " + st);
+                if (emu.loadState(st)) DebugUi_SetStatus(uiState, "State loaded: " + st);
             }
             if (IsKeyPressed(KEY_F1)) {
-                if (emu.saveBattery()) DebugUi_SetStatus(uiState, "SRAM(+RTC) salva");
+                if (emu.saveBattery()) DebugUi_SetStatus(uiState, "SRAM(+RTC) saved");
             }
             if (IsKeyPressed(KEY_LEFT_BRACKET)) {
                 uiState.paletteIndex = (uiState.paletteIndex + kPaletteCount - 1) % kPaletteCount;
@@ -612,6 +612,6 @@ int main(int argc, char** argv) {
     CloseAudioDevice();
     UnloadTexture(screenTexture);
     CloseWindow();
-    std::cout << "Emulador fechado.\n";
+    std::cout << "Emulator closed.\n";
     return 0;
 }

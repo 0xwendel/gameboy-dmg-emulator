@@ -48,7 +48,7 @@ bool Emulator::loadBootRom(const std::string& path) {
 
 bool Emulator::loadRom(const std::string& path) {
     if (!m_cart.loadFromFile(path)) {
-        std::cerr << "Falha ao carregar ROM: " << path << "\n";
+        std::cerr << "Failed to load ROM: " << path << "\n";
         return false;
     }
     m_romPath = path;
@@ -129,7 +129,7 @@ bool Emulator::saveBattery() const {
     const std::string path = m_cart.defaultSavePath();
     const_cast<Cartridge&>(m_cart).updateRtcWallClock();
     if (m_cart.saveBattery(path)) {
-        std::cout << "SRAM" << (m_cart.hasRtc() ? "+RTC" : "") << " salva em " << path << "\n";
+        std::cout << "SRAM" << (m_cart.hasRtc() ? "+RTC" : "") << " saved to " << path << "\n";
         return true;
     }
     return false;
@@ -139,7 +139,7 @@ bool Emulator::loadBattery() {
     if (!m_cart.hasBattery()) return false;
     const std::string path = m_cart.defaultSavePath();
     if (m_cart.loadBattery(path)) {
-        std::cout << "SRAM" << (m_cart.hasRtc() ? "+RTC" : "") << " carregada de " << path << "\n";
+        std::cout << "SRAM" << (m_cart.hasRtc() ? "+RTC" : "") << " loaded from " << path << "\n";
         return true;
     }
     return false;

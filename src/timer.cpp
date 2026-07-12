@@ -10,7 +10,7 @@ void Timer::reset() {
 }
 
 int Timer::tacBitIndex(uint8_t tac) {
-    // Bits do contador interno de 16 bits que geram falling-edge do TIMA:
+    // Internal 16-bit counter bits that generate TIMA falling edges:
     // 00: bit 9 (4096 Hz), 01: bit 3 (262144 Hz), 10: bit 5 (65536 Hz), 11: bit 7 (16384 Hz)
     switch (tac & 0x03) {
         case 0: return 9;
@@ -21,7 +21,7 @@ int Timer::tacBitIndex(uint8_t tac) {
 }
 
 void Timer::tickTCycle(MMU& mmu) {
-    // Reload delay do TIMA (4 T-cycles após overflow)
+    // TIMA reload delay (4 T-cycles after overflow)
     if (m_timaReloadDelay >= 0) {
         m_timaReloadDelay--;
         if (m_timaReloadDelay == 0) {
@@ -29,7 +29,7 @@ void Timer::tickTCycle(MMU& mmu) {
             mmu.io()[0x0F] |= 0x04; // Timer interrupt
             m_timaReloadDelay = -1;
         } else if (m_timaReloadDelay > 0) {
-            // Durante o delay, TIMA fica em 0
+            // During the delay, TIMA stays at 0
             mmu.io()[0x05] = 0;
         }
     }
@@ -52,7 +52,7 @@ void Timer::tickTCycle(MMU& mmu) {
     if (oldBit && !newBit) {
         uint8_t tima = mmu.io()[0x05];
         if (tima == 0xFF) {
-            // Overflow: TIMA = 0 por 4 T-cycles, depois TMA + IRQ
+            // Overflow: TIMA = 0 for 4 T-cycles, then TMA + IRQ
             mmu.io()[0x05] = 0;
             m_timaReloadValue = mmu.io()[0x06];
             m_timaReloadDelay = 4;

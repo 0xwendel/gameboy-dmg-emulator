@@ -608,16 +608,16 @@ uint8_t CPU::executeOpcode(uint8_t opcode, MMU& mmu) {
             m_imeEnablePending = false;
             return 1;
         case 0xFB:
-            // IME só após a próxima instrução
+            // IME enables after the next instruction
             m_imeEnablePending = true;
             return 1;
         case 0xCB:
             return executeCBOpcode(fetchByte(mmu), mmu);
 
         default:
-            std::cerr << "AVISO: Opcode nao implementado: 0x"
+            std::cerr << "WARNING: Unimplemented opcode: 0x"
                       << std::hex << std::setw(2) << std::setfill('0') << (int)opcode
-                      << " em PC: 0x" << std::setw(4) << (m_regs.pc - 1) << std::dec << std::endl;
+                      << " at PC: 0x" << std::setw(4) << (m_regs.pc - 1) << std::dec << std::endl;
             return 1;
     }
 }

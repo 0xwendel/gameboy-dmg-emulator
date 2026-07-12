@@ -17,7 +17,7 @@ bool Cartridge::loadFromFile(const std::string& path) {
 
 bool Cartridge::load(const std::vector<uint8_t>& romData) {
     if (romData.size() < 0x150) {
-        std::cerr << "ROM muito pequena (header incompleto).\n";
+        std::cerr << "ROM too small (incomplete header).\n";
         return false;
     }
     m_rom = romData;
@@ -79,8 +79,8 @@ void Cartridge::parseHeader() {
             break;
         default:
             m_type = MbcType::MBC1;
-            std::cerr << "Tipo de cartucho 0x" << std::hex << (int)cartType
-                      << " desconhecido; usando MBC1.\n" << std::dec;
+            std::cerr << "Unknown cartridge type 0x" << std::hex << (int)cartType
+                      << "; using MBC1.\n" << std::dec;
             break;
     }
 
@@ -114,7 +114,7 @@ void Cartridge::parseHeader() {
     m_rtcLatchedReady = false;
     m_rtcLastSync = std::time(nullptr);
 
-    std::cout << "Cartucho: \"" << m_title << "\" tipo=";
+    std::cout << "Cartridge: \"" << m_title << "\" type=";
     switch (m_type) {
         case MbcType::None: std::cout << "ROM-only"; break;
         case MbcType::MBC1: std::cout << "MBC1"; break;

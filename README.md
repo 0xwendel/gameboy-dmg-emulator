@@ -107,8 +107,8 @@ cmake --build build --config Release
 Typical binary path:
 
 ```text
-build/gb_emulator.exe    # Windows
-build/gb_emulator        # Unix
+build/gb-dmg.exe    # Windows
+build/gb-dmg        # Unix
 ```
 
 If a `roms/` folder exists in the project root, CMake copies it next to the binary after build (dev convenience). **Do not commit commercial ROMs** (see [Legal](#legal)).
@@ -119,18 +119,18 @@ If a `roms/` folder exists in the project root, CMake copies it next to the bina
 
 ```bash
 # Game
-./build/gb_emulator.exe "path/to/game.gb"
+./build/gb-dmg.exe "path/to/game.gb"
 
 # Common options
-./build/gb_emulator.exe --scale 4 --shader 4 --palette 0 game.gb
-./build/gb_emulator.exe --muted --smooth game.gb
-./build/gb_emulator.exe --boot dmg_boot.bin game.gb
+./build/gb-dmg.exe --scale 4 --shader 4 --palette 0 game.gb
+./build/gb-dmg.exe --muted --smooth game.gb
+./build/gb-dmg.exe --boot dmg_boot.bin game.gb
 
 # Unit tests
-./build/gb_emulator.exe --test
+./build/gb-dmg.exe --test
 
 # Help
-./build/gb_emulator.exe --help
+./build/gb-dmg.exe --help
 ```
 
 ### CLI
@@ -272,7 +272,7 @@ Host frame (simplified):
 ## Tests
 
 ```bash
-./build/gb_emulator.exe --test
+./build/gb-dmg.exe --test
 ```
 
 Current coverage (headless / strong `REQUIRE` checks):
@@ -306,7 +306,7 @@ Optional. Without `--boot`, the emulator starts in a **post-boot** state (PC = `
 With a legitimate DMG boot dump (256 bytes):
 
 ```bash
-./build/gb_emulator.exe --boot dmg_boot.bin game.gb
+./build/gb-dmg.exe --boot dmg_boot.bin game.gb
 ```
 
 The boot ROM maps `0x0000–0x00FF` until a write to `FF50`.  

@@ -31,7 +31,7 @@ void MMU::reset() {
 bool MMU::loadBootRom(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f) {
-        std::cerr << "Falha ao abrir boot ROM: " << path << "\n";
+        std::cerr << "Failed to open boot ROM: " << path << "\n";
         return false;
     }
     std::vector<uint8_t> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -40,12 +40,12 @@ bool MMU::loadBootRom(const std::string& path) {
 
 bool MMU::loadBootRom(const std::vector<uint8_t>& data) {
     if (data.size() < 0x100) {
-        std::cerr << "Boot ROM DMG precisa de 256 bytes (tem " << data.size() << ").\n";
+        std::cerr << "DMG boot ROM must be 256 bytes (got " << data.size() << ").\n";
         return false;
     }
     std::memcpy(m_bootRom, data.data(), 0x100);
     m_bootRomLoaded = true;
-    std::cout << "Boot ROM DMG carregada (256 bytes).\n";
+    std::cout << "DMG boot ROM loaded (256 bytes).\n";
     return true;
 }
 
