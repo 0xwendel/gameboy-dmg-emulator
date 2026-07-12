@@ -8,7 +8,7 @@ Built for real gameplay: CPU, PPU, timers, joypad, MBC cartridges, stereo APU, s
 
 | | |
 |---|---|
-| **Version** | 0.4.1 |
+| **Version** | 0.4.2 |
 | **Language** | C++20 |
 | **Build** | CMake ≥ 3.20 (Ninja, Make, or MSVC — generator depends on the environment) |
 | **Platform** | Windows (primary; dependencies are cross-platform) |

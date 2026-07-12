@@ -59,9 +59,13 @@ uint16_t CPU::fetchWord(MMU& mmu) {
 }
 
 uint8_t CPU::step(MMU& mmu) {
+    // Only bits 0-4 are real interrupt sources. IF bits 5-7 always read as 1;
+    // IE may also have unused high bits (Tetris writes IE=$FF). Without this
+    // mask, IME+IE high bits freezes the CPU: handleInterrupts sees "pending"
+    // forever but never services anything, so opcodes never execute.
     const uint8_t ie = mmu.readByte(0xFFFF);
     const uint8_t ifReg = mmu.readByte(0xFF0F);
-    const uint8_t pendingInterrupts = static_cast<uint8_t>(ie & ifReg);
+    const uint8_t pendingInterrupts = static_cast<uint8_t>(ie & ifReg & 0x1F);
 
     const bool enableImeAfter = m_imeEnablePending;
     m_imeEnablePending = false;
@@ -225,7 +229,7 @@ uint8_t CPU::executeOpcode(uint8_t opcode, MMU& mmu) {
             // HALT
             const uint8_t ie = mmu.readByte(0xFFFF);
             const uint8_t ifReg = mmu.readByte(0xFF0F);
-            if (!m_ime && (ie & ifReg) != 0) {
+            if (!m_ime && (ie & ifReg & 0x1F) != 0) {
                 m_haltBug = true;
             } else {
                 m_halted = true;
@@ -730,9 +734,9 @@ uint8_t CPU::executeCBOpcode(uint8_t cbOpcode, MMU& mmu) {
 }
 
 void CPU::handleInterrupts(MMU& mmu) {
-    uint8_t ie = mmu.readByte(0xFFFF);
-    uint8_t ifReg = mmu.readByte(0xFF0F);
-    uint8_t pending = static_cast<uint8_t>(ie & ifReg);
+    const uint8_t ie = mmu.readByte(0xFFFF);
+    const uint8_t ifReg = mmu.readByte(0xFF0F);
+    const uint8_t pending = static_cast<uint8_t>(ie & ifReg & 0x1F);
     if (pending == 0) return;
 
     if (pending & 0x01) serviceInterrupt(0, 0x0040, mmu);
@@ -745,8 +749,8 @@ void CPU::handleInterrupts(MMU& mmu) {
 void CPU::serviceInterrupt(uint8_t interruptBit, uint16_t vectorAddress, MMU& mmu) {
     m_ime = false;
     m_halted = false;
-    uint8_t ifReg = mmu.readByte(0xFF0F);
-    mmu.writeByte(0xFF0F, static_cast<uint8_t>(ifReg & ~(1 << interruptBit)));
+    const uint8_t ifReg = mmu.readByte(0xFF0F);
+    mmu.writeByte(0xFF0F, static_cast<uint8_t>((ifReg & 0x1F) & ~(1u << interruptBit)));
     pushWord(mmu, m_regs.pc);
     m_regs.pc = vectorAddress;
 }

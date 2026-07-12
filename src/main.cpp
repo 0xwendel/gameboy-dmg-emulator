@@ -182,6 +182,7 @@ static void testSerial() {
     rom[0x0147] = 0x00;
     REQUIRE(emu.loadRom(rom, ""));
 
+    // Internal clock (master): transfer completes, SIN open → $FF shifted in.
     emu.mmu().writeByte(0xFF01, 0xA5);
     emu.mmu().writeByte(0xFF02, 0x81);
     REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) != 0);
@@ -191,6 +192,17 @@ static void testSerial() {
     REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) == 0);
     REQUIRE(emu.mmu().readByte(0xFF01) == 0xFF);
     REQUIRE((emu.mmu().readByte(0xFF0F) & 0x08) != 0);
+
+    // External clock (slave): must NOT complete without a peer. Tetris menu
+    // probes with SC=$80; finishing immediately with $FF corrupts 1P select.
+    emu.mmu().io()[0x0F] = 0;
+    emu.mmu().writeByte(0xFF01, 0x55);
+    emu.mmu().writeByte(0xFF02, 0x80);
+    for (int i = 0; i < 5000; ++i) emu.stepInstruction();
+    REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) != 0);
+    REQUIRE(emu.mmu().readByte(0xFF01) == 0x55);
+    REQUIRE((emu.mmu().readByte(0xFF0F) & 0x08) == 0);
+
     std::cout << "Serial OK.\n\n";
 }
 
@@ -218,6 +230,112 @@ static void testMBC3Rtc() {
     std::cout << "MBC3 RTC OK.\n\n";
 }
 
+static void testIeHighBitsDoNotFreezeCpu() {
+    // Tetris (and others) write IE=$FF. IF bits 5-7 always read as 1.
+    // Pending must use only bits 0-4 or the CPU never executes opcodes.
+    std::cout << "Running IE high-bits / IME freeze regression...\n";
+    Emulator emu;
+    std::vector<uint8_t> rom(0x200, 0x00);
+    rom[0x100] = 0xFB; // EI
+    rom[0x101] = 0x00; // NOP
+    rom[0x102] = 0x00; // NOP
+    rom[0x103] = 0x00; // NOP
+    rom[0x0147] = 0x00;
+    REQUIRE(emu.loadRom(rom, ""));
+    emu.mmu().ie() = 0xFF;
+    emu.mmu().io()[0x0F] = 0x00; // no real IF sources; read still yields 0xE0
+    emu.stepInstruction(); // EI
+    REQUIRE(emu.cpu().getIme() == false);
+    emu.stepInstruction(); // NOP, IME becomes true
+    REQUIRE(emu.cpu().getIme() == true);
+    const uint16_t pcAfterEi = emu.cpu().getRegs().pc;
+    emu.stepInstruction(); // must execute next NOP, not soft-lock
+    REQUIRE(emu.cpu().getRegs().pc == static_cast<uint16_t>(pcAfterEi + 1));
+    emu.stepInstruction();
+    REQUIRE(emu.cpu().getRegs().pc == static_cast<uint16_t>(pcAfterEi + 2));
+    std::cout << "IE high-bits freeze regression OK.\n\n";
+}
+
+static void testTetrisAcceptsStart(const char* romPath) {
+    // Tetris: IE high bits, JOYP poll (FF80/FF81), and serial SC=$80 probe on
+    // the 1P/2P menu. External serial must hang or the menu soft-locks.
+    std::cout << "Running Tetris Start-button smoke test...\n";
+    Emulator emu;
+    if (!emu.loadRom(romPath)) {
+        std::cout << "Skip Tetris smoke (ROM not found): " << romPath << "\n\n";
+        return;
+    }
+
+    auto press = [&](uint8_t dir, uint8_t act, int frames) {
+        for (int i = 0; i < frames; ++i) {
+            emu.setJoypad(dir, act);
+            emu.runFrame();
+        }
+    };
+    auto release = [&](int frames) { press(0x0F, 0x0F, frames); };
+    auto edgeStart = [&]() {
+        release(8);
+        press(0x0F, 0x07, 12); // Start
+        release(8);
+    };
+    auto edgeA = [&]() {
+        release(8);
+        press(0x0F, 0x0E, 12); // A
+        release(8);
+    };
+
+    // Title intro timers (states $25 → $35).
+    for (int i = 0; i < 400; ++i) emu.runFrame();
+
+    bool sawHeldStart = false;
+    bool sawEdgeStart = false;
+    release(5);
+    for (int i = 0; i < 20; ++i) {
+        emu.setJoypad(0x0F, 0x07);
+        emu.runFrame();
+        if (emu.mmu().readByte(0xFF80) & 0x08) sawHeldStart = true;
+        if (emu.mmu().readByte(0xFF81) & 0x08) sawEdgeStart = true;
+    }
+    REQUIRE(sawHeldStart);
+    REQUIRE(sawEdgeStart);
+    release(10);
+
+    // Several Start/A edges to leave copyright/title and enter mode select.
+    for (int n = 0; n < 12; ++n) {
+        edgeStart();
+        edgeA();
+    }
+
+    // Mode-select / menu path must remain alive (not serial soft-lock).
+    uint16_t lastPc = emu.cpu().getRegs().pc;
+    int changes = 0;
+    for (int i = 0; i < 60; ++i) {
+        emu.runFrame();
+        const uint16_t pc = emu.cpu().getRegs().pc;
+        if (pc != lastPc) {
+            ++changes;
+            lastPc = pc;
+        }
+    }
+    REQUIRE(changes >= 5);
+
+    // External serial probe must still be pending if the game armed SC=$80.
+    // (If SC transfer bit is clear after only external probes, something
+    // completed a slave transfer — the Tetris-breaking path.)
+    const uint8_t sc = emu.mmu().readByte(0xFF02);
+    if ((sc & 0x80) != 0) {
+        REQUIRE((sc & 0x01) == 0); // still waiting on external clock
+    }
+
+    // Game state FFE1 should have left the early title-only values after input.
+    const uint8_t state = emu.mmu().readByte(0xFFE1);
+    REQUIRE(state != 0x25);
+    REQUIRE(state != 0x35);
+
+    std::cout << "Tetris Start smoke OK (state=$" << std::hex << (int)state
+              << std::dec << ", PC changes=" << changes << ").\n\n";
+}
+
 static int runUnitTests() {
     testMBC1();
     testTimersAndInterrupts();
@@ -226,6 +344,9 @@ static int runUnitTests() {
     testAPU();
     testSerial();
     testMBC3Rtc();
+    testIeHighBitsDoNotFreezeCpu();
+    testTetrisAcceptsStart(
+        "roms/Tetris (World) (Rev 1)/Tetris (World) (Rev 1).gb");
     std::cout << "All tests passed.\n";
     return 0;
 }
@@ -447,10 +568,11 @@ int main(int argc, char** argv) {
     bool lastGamepadConnected = false;
 
     while (!WindowShouldClose()) {
-        const bool uiCapturesKeyboard = DebugUi_WantCaptureKeyboard();
-
+        // Game controls must not depend on ImGui WantCaptureKeyboard: the main
+        // menu bar focuses navigation and steals Enter (Start), which freezes
+        // title screens like Tetris. Only suppress keys while typing in a field.
         DebugUiInput pad{};
-        if (!uiCapturesKeyboard) {
+        if (!DebugUi_WantTextInput()) {
             pollKeyboardPad(pad);
         }
         pollXboxGamepad(pad);
@@ -468,7 +590,12 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (!uiCapturesKeyboard) {
+        // Emulator hotkeys: ignore when inspector is open and ImGui wants keys,
+        // or when a text field is active.
+        const bool blockHotkeys =
+            DebugUi_WantTextInput() ||
+            (uiState.showSidebar && DebugUi_WantCaptureKeyboard());
+        if (!blockHotkeys) {
             if (IsKeyPressed(KEY_P)) emu.togglePause();
             if (IsKeyPressed(KEY_R)) {
                 emu.reset();

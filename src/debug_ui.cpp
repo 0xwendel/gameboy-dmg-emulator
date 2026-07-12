@@ -588,7 +588,7 @@ void drawAboutModal(DebugUiState& state) {
     if (ImGui::BeginPopupModal("About##about_modal", &state.showAbout,
                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
         ImGui::TextColored(kAccent, "GB DMG Emulator");
-        ImGui::Text("Version 0.4.1");
+        ImGui::Text("Version 0.4.2");
         ImGui::Spacing();
         ImGui::TextWrapped(
             "A Game Boy (DMG) emulator written in C++20, "
@@ -714,7 +714,8 @@ void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state) {
 
 void DebugUi_Init() {
     rlImGuiSetup(true);
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    // Do not enable ImGuiConfigFlags_NavEnableKeyboard: it keeps WantCaptureKeyboard
+    // true while the main menu bar is focused and steals Enter (mapped to Start).
     applyModernTheme();
 }
 
@@ -745,6 +746,10 @@ bool DebugUi_WantCaptureKeyboard() {
 
 bool DebugUi_WantCaptureMouse() {
     return ImGui::GetIO().WantCaptureMouse;
+}
+
+bool DebugUi_WantTextInput() {
+    return ImGui::GetIO().WantTextInput;
 }
 
 void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,

@@ -57,3 +57,6 @@ void DebugUi_SetStatus(DebugUiState& state, const std::string& msg);
 void DebugUi_ToggleSidebar(DebugUiState& state);
 bool DebugUi_WantCaptureKeyboard();
 bool DebugUi_WantCaptureMouse();
+// True only while an ImGui text field is active (memory address, etc.).
+// Game controls should ignore WantCaptureKeyboard — the menu bar / nav steals Enter.
+bool DebugUi_WantTextInput();

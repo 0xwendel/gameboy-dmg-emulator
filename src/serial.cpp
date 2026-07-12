@@ -19,6 +19,11 @@ void Serial::writeSC(uint8_t value) {
         m_transferring = true;
         m_bitsLeft = 8;
         m_cycleAcc = 0;
+    } else {
+        // Clearing the start flag aborts an in-progress transfer (incl. slave wait).
+        m_transferring = false;
+        m_bitsLeft = 0;
+        m_cycleAcc = 0;
     }
 }
 
@@ -29,18 +34,17 @@ uint8_t Serial::readSC() const {
 void Serial::tick(uint32_t tCycles, MMU& mmu) {
     if (!m_transferring) return;
 
+    // External clock (SC bit 0 = 0): wait forever for a peer to drive SCK.
+    // Completing immediately with SB=$FF breaks Tetris multiplayer probe
+    // (state $07 writes SC=$80 and expects no serial IRQ if cable is absent).
     if ((m_sc & 0x01) == 0) {
-        m_sb = 0xFF;
-        m_transferring = false;
-        m_bitsLeft = 0;
-        m_sc &= static_cast<uint8_t>(~0x80);
-        mmu.io()[0x0F] |= 0x08;
         return;
     }
 
     m_cycleAcc += static_cast<int>(tCycles);
     while (m_transferring && m_cycleAcc >= kCyclesPerBit) {
         m_cycleAcc -= kCyclesPerBit;
+        // No peer connected: shift in 1s (open bus / disconnected SIN).
         m_sb = static_cast<uint8_t>((m_sb << 1) | 0x01);
         --m_bitsLeft;
         if (m_bitsLeft <= 0) {

@@ -223,7 +223,17 @@ void MMU::writeByteDirect(uint16_t address, uint8_t value) {
     }
     if (address >= 0xFF00 && address <= 0xFF7F) {
         if (address == 0xFF00) {
+            const uint8_t prevSelect = m_joypadSelect;
             m_joypadSelect = value & 0x30;
+            // Falling edge on P10-P13 when a select line enables a pressed button.
+            const bool dirNow = (m_joypadSelect & 0x10) == 0;
+            const bool actNow = (m_joypadSelect & 0x20) == 0;
+            const bool dirWas = (prevSelect & 0x10) == 0;
+            const bool actWas = (prevSelect & 0x20) == 0;
+            if ((dirNow && !dirWas && (m_joypadDirections & 0x0F) != 0x0F) ||
+                (actNow && !actWas && (m_joypadActions & 0x0F) != 0x0F)) {
+                m_io[0x0F] |= 0x10;
+            }
             return;
         }
         if (address == 0xFF01) {
