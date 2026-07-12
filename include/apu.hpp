@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <vector>
 
-// APU DMG: 4 canais, frame sequencer (DIV bit 12), DAC, pan/volume, high-pass.
 class APU {
 public:
     APU();
@@ -61,7 +60,6 @@ private:
         void clockEnvelope();
         void clockSweep();
         uint16_t calcSweep() const;
-        // Nível digital 0..15 (0 se canal/DAC off).
         uint8_t digitalOutput() const;
         void tickTimer();
         uint32_t period() const;
@@ -101,7 +99,7 @@ private:
         bool widthMode = false;
         uint8_t divisorCode = 0;
         uint16_t lfsr = 0x7FFF;
-        uint32_t freqTimer = 0; // 32-bit: shift alto não estoura
+        uint32_t freqTimer = 0;
         uint8_t nr1 = 0, nr2 = 0, nr3 = 0, nr4 = 0;
 
         void trigger();
@@ -138,15 +136,12 @@ private:
     double m_sampleTimer = 0.0;
     static constexpr double kCyclesPerSample = 4194304.0 / kSampleRate;
 
-    // High-pass por canal estéreo (remove DC do DAC unipolar).
     double m_capLeft = 0.0;
     double m_capRight = 0.0;
-    // SameBoy ~ 0.999958 @ 44100 Hz (grave bem baixo, menos “soco” artificial).
     static constexpr double kCapCharge = 0.999958;
 
-    // Ring buffer de samples intercalados L,R
-    static constexpr size_t kRingCapacity = 44100; // frames (~1s)
-    std::vector<int16_t> m_ring; // size = kRingCapacity * 2
+    static constexpr size_t kRingCapacity = 44100;
+    std::vector<int16_t> m_ring;
     size_t m_ringRead = 0;
     size_t m_ringWrite = 0;
     size_t m_ringFrames = 0;

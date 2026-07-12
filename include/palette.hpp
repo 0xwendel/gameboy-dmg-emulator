@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <string_view>
 
-// Paletas DMG pré-definidas (RGBA 8-bit, ordem shade 0..3 claro→escuro).
 struct DmgPalette {
     const char* name;
     uint32_t colors[4];

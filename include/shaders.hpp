@@ -4,7 +4,6 @@
 
 #include <string>
 
-// Pós-processamento da tela GB (fragment shaders GLSL 330).
 enum class ScreenShaderId : int {
     None = 0,
     Scanlines,
@@ -26,7 +25,6 @@ public:
     ScreenShaders(const ScreenShaders&) = delete;
     ScreenShaders& operator=(const ScreenShaders&) = delete;
 
-    // Carrega todos os presets (default VS + FS embutidos).
     bool load();
     void unload();
 
@@ -38,8 +36,6 @@ public:
     void cycleNext();
     void cyclePrev();
 
-    // Desenha a textura GB (160x144) no retângulo de destino com o shader ativo.
-    // resolution = tamanho em pixels da área de desenho (para scanlines/LCD).
     void draw(const Texture2D& texture, Rectangle src, Rectangle dest,
               float timeSeconds);
 

@@ -25,7 +25,6 @@ public:
     void attachCartridge(Cartridge* cart);
     void attachAPU(APU* apu);
 
-    // Boot ROM opcional (256 bytes DMG). Se carregada, mapeia 0x0000-0x00FF até FF50.
     bool loadBootRom(const std::string& path);
     bool loadBootRom(const std::vector<uint8_t>& data);
     bool bootRomLoaded() const { return m_bootRomLoaded; }
@@ -35,7 +34,6 @@ public:
     uint8_t readByte(uint16_t address) const;
     void writeByte(uint16_t address, uint8_t value);
 
-    // Acesso interno sem bloqueio de VRAM/OAM (PPU, DMA).
     uint8_t readByteDirect(uint16_t address) const;
     void writeByteDirect(uint16_t address, uint8_t value);
 
@@ -44,14 +42,12 @@ public:
     void setPpuAccessMode(PpuAccessMode mode) { m_ppuMode = mode; }
     PpuAccessMode ppuAccessMode() const { return m_ppuMode; }
 
-    // Contador DIV de 16 bits (Timer e APU leem bits internos).
     uint16_t& divCounter() { return m_divCounter; }
     uint16_t divCounter() const { return m_divCounter; }
     void setDivHigh();
 
     void setJoypadState(uint8_t directionState, uint8_t actionState);
 
-    // DMA OAM: 1 byte por M-cycle, 160 M-cycles no total.
     void startDMA(uint8_t page);
     void tickDMA(uint8_t mCycles);
     bool dmaActive() const { return m_dmaActive; }
@@ -92,7 +88,6 @@ private:
     uint8_t m_joypadDirections = 0x0F;
     uint8_t m_joypadActions = 0x0F;
 
-    // DMA
     bool m_dmaActive = false;
     uint16_t m_dmaSource = 0;
     uint8_t m_dmaIndex = 0;

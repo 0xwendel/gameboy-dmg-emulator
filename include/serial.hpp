@@ -5,8 +5,6 @@
 
 class MMU;
 
-// Link cable DMG: SB (FF01) / SC (FF02).
-// Sem peer: transferência interna completa com 0xFF no cabo (desconectado).
 class Serial {
 public:
     Serial() = default;
@@ -17,7 +15,6 @@ public:
     uint8_t readSB() const { return m_sb; }
     uint8_t readSC() const;
 
-    // Avança em T-cycles; pode setar IF serial no MMU.
     void tick(uint32_t tCycles, MMU& mmu);
 
     void serialize(std::vector<uint8_t>& out) const;
@@ -25,11 +22,10 @@ public:
 
 private:
     uint8_t m_sb = 0x00;
-    uint8_t m_sc = 0x7E; // bits abertos
+    uint8_t m_sc = 0x7E;
     bool m_transferring = false;
     int m_bitsLeft = 0;
     int m_cycleAcc = 0;
 
-    // DMG internal clock: 8192 Hz → 512 T-cycles por bit
     static constexpr int kCyclesPerBit = 512;
 };

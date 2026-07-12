@@ -39,11 +39,7 @@ public:
     CPU();
     ~CPU() = default;
 
-    // useBootRom=true: registradores zerados, PC=0 (boot real).
-    // useBootRom=false: estado pós-boot DMG (skip boot).
     void reset(bool useBootRom = false);
-
-    // Executa uma instrução. Retorna M-cycles gastos.
     uint8_t step(MMU& mmu);
 
     void setFlag(uint8_t flag, bool value);
@@ -54,14 +50,13 @@ public:
     bool getIme() const { return m_ime; }
     bool isHalted() const { return m_halted; }
 
-    // Serialização simples de estado
     void serialize(std::vector<uint8_t>& out) const;
     bool deserialize(const uint8_t*& ptr, const uint8_t* end);
 
 private:
     Registers m_regs;
     bool m_ime = false;
-    bool m_imeEnablePending = false; // EI delay de 1 instrução
+    bool m_imeEnablePending = false;
     bool m_halted = false;
     bool m_haltBug = false;
 

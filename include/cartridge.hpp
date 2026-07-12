@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-// Cartucho DMG: ROM-only, MBC1/2/3/5 + SRAM bateria + RTC MBC3.
 class Cartridge {
 public:
     enum class MbcType {
@@ -25,7 +24,6 @@ public:
     uint8_t read(uint16_t address) const;
     void write(uint16_t address, uint8_t value);
 
-    // Avança RTC com tempo de parede (chamar periodicamente no host).
     void updateRtcWallClock();
 
     bool hasBattery() const { return m_hasBattery; }
@@ -44,7 +42,7 @@ private:
         uint8_t m = 0;
         uint8_t h = 0;
         uint8_t dl = 0;
-        uint8_t dh = 0; // bit0 day8, bit6 halt, bit7 carry
+        uint8_t dh = 0;
     };
 
     void parseHeader();
@@ -68,20 +66,16 @@ private:
     bool m_hasRtc = false;
     bool m_ramEnabled = false;
 
-    // MBC1
     uint8_t m_romBankLower = 1;
     uint8_t m_romBankUpper = 0;
     uint8_t m_bankingMode = 0;
 
-    // MBC3
     uint8_t m_romBank = 1;
-    uint8_t m_ramBank = 0; // 0-3 RAM, 0x08-0x0C RTC
+    uint8_t m_ramBank = 0;
 
-    // MBC5
     uint16_t m_romBank5 = 1;
     uint8_t m_ramBank5 = 0;
 
-    // RTC MBC3
     RtcRegs m_rtc{};
     RtcRegs m_rtcLatched{};
     uint8_t m_rtcLatchData = 0xFF;

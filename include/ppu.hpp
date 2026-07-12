@@ -25,7 +25,6 @@ public:
     uint8_t ly() const { return m_ly; }
     Mode mode() const { return m_mode; }
 
-    // Paleta DMG (4 cores RGBA). index 0=claro .. 3=escuro.
     void setPalette(const uint32_t colors[4]);
     const uint32_t* palette() const { return m_palette; }
 
@@ -41,7 +40,6 @@ private:
     bool m_statInterruptLine = false;
     bool m_lcdEnabled = true;
 
-    // Contador interno da Window (só avança quando a window desenha).
     uint8_t m_windowLineCounter = 0;
     bool m_windowLineActive = false;
 

@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 
-// Orquestra CPU, PPU, Timer, APU, Serial e cartucho.
 class Emulator {
 public:
     Emulator();
@@ -19,24 +18,18 @@ public:
     bool loadRom(const std::string& path);
     bool loadRom(const std::vector<uint8_t>& data, const std::string& pathHint = "");
 
-    // Boot ROM DMG opcional (256 bytes). Ativa no próximo reset se carregada.
     bool loadBootRom(const std::string& path);
     bool bootRomEnabled() const { return m_useBootRom; }
 
-    // Executa até completar um frame (~70224 T-cycles / VBlank).
     void runFrame();
-
-    // Executa uma instrução e avança periféricos pelos M-cycles gastos.
     uint8_t stepInstruction();
 
     void reset();
     void setJoypad(uint8_t directions, uint8_t actions);
 
-    // Bateria do cartucho (+ RTC se houver)
     bool saveBattery() const;
     bool loadBattery();
 
-    // Save state simples (binário)
     bool saveState(const std::string& path) const;
     bool loadState(const std::string& path);
 
