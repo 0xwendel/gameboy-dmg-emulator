@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <string>
 
-// Input do joypad espelhado na UI de debug (teclado + gamepad).
 struct DebugUiInput {
     bool keyUp = false;
     bool keyDown = false;
@@ -18,31 +17,26 @@ struct DebugUiInput {
     bool keySelect = false;
     bool keyStart = false;
 
-    // Gamepad (Xbox 360 / XInput)
     bool gamepadConnected = false;
     int gamepadIndex = -1;
     const char* gamepadName = nullptr;
 };
 
-// Estado da UI de debug + opções de display.
-// O inspector é overlay: NÃO reduz a área do display do jogo.
 struct DebugUiState {
-    bool showSidebar = false; // F12 — padrão off: foco no display GB
+    bool showSidebar = false;
+    bool showAbout = false;
 
-    // 0=Home 1=CPU 2=Video 3=Audio 4=Memory 5=Cart 6=Input 7=Display
+    // Home, CPU, Video, Audio, Memory, Cart, Input, Display
     int panel = 0;
 
-    // Display
     int paletteIndex = 0;
     int shaderIndex = 0;
     bool smoothFilter = false;
     bool integerScale = true;
 
-    // Memory peek
     int memAddress = 0xC000;
     int memBytes = 64;
 
-    // Mensagem de status temporária
     std::string status;
     float statusTimer = 0.0f;
 };
@@ -50,10 +44,7 @@ struct DebugUiState {
 void DebugUi_Init();
 void DebugUi_Shutdown();
 
-// Sempre 0: o inspector é overlay e não reserva largura do viewport do jogo.
 float DebugUi_SidebarWidth(const DebugUiState& state);
-
-// Altura da menubar ImGui (para letterbox do display).
 float DebugUi_MenuBarHeight();
 
 void DebugUi_ApplyPalette(Emulator& emu, DebugUiState& state);

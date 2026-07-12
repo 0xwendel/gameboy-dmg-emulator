@@ -18,8 +18,7 @@ constexpr float kInspectorWidth = 380.0f;
 constexpr float kInspectorPad = 10.0f;
 constexpr float kMenuBarApprox = 22.0f;
 
-// Accent / theme tokens
-const ImVec4 kAccent     = ImVec4(0.25f, 0.78f, 0.62f, 1.f);   // mint
+const ImVec4 kAccent     = ImVec4(0.25f, 0.78f, 0.62f, 1.f);
 const ImVec4 kAccentDim  = ImVec4(0.18f, 0.45f, 0.38f, 1.f);
 const ImVec4 kWarn       = ImVec4(1.00f, 0.72f, 0.28f, 1.f);
 const ImVec4 kDanger     = ImVec4(0.95f, 0.35f, 0.40f, 1.f);
@@ -175,8 +174,6 @@ void HexReg(const char* name, unsigned value, int width = 4) {
     else ImGui::Text("%02X", value & 0xFF);
     ImGui::EndGroup();
 }
-
-// -------------------- Panels --------------------
 
 void panelHome(Emulator& emu, DebugUiState& state, float hostFps, float gameW, float gameH) {
     const char* title = emu.cart().title().empty() ? "No cart" : emu.cart().title().c_str();
@@ -471,7 +468,6 @@ void panelCart(Emulator& emu, DebugUiState& state) {
     }
     EndCard();
 
-    // Timer / IRQ compact (antes era aba separada)
     BeginCard("sys_timer");
     CardTitle("Timer / IRQs");
     auto& mmu = emu.mmu();
@@ -581,6 +577,49 @@ void panelDisplay(Emulator& emu, DebugUiState& state, int scale, float gameW, fl
     EndCard();
 }
 
+void drawAboutModal(DebugUiState& state) {
+    if (!state.showAbout) return;
+
+    ImGui::OpenPopup("About##about_modal");
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+
+    if (ImGui::BeginPopupModal("About##about_modal", &state.showAbout,
+                               ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::TextColored(kAccent, "GB DMG Emulator");
+        ImGui::Text("Version 0.4.0");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "A Game Boy (DMG) emulator written in C++20, "
+            "with raylib, Dear ImGui, and embedded GLSL shaders.");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::Text("Author");
+        ImGui::SameLine(100.0f);
+        ImGui::Text("0xwendel");
+        ImGui::Text("License");
+        ImGui::SameLine(100.0f);
+        ImGui::Text("GPL-3.0");
+        ImGui::Text("Repo");
+        ImGui::SameLine(100.0f);
+        ImGui::TextWrapped("github.com/0xwendel/gameboy-dmg-emulator");
+        ImGui::Spacing();
+        ImGui::TextColored(kMuted, "No commercial ROMs included.");
+        ImGui::Spacing();
+        if (PrimaryButton("Close", ImVec2(120, 0))) {
+            state.showAbout = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (state.showAbout && !ImGui::IsPopupOpen("About##about_modal")) {
+        ImGui::OpenPopup("About##about_modal");
+    }
+}
+
 void drawMenuBar(Emulator& emu, DebugUiState& state, float hostFps, float screenW) {
     if (!ImGui::BeginMainMenuBar()) return;
 
@@ -631,13 +670,17 @@ void drawMenuBar(Emulator& emu, DebugUiState& state, float hostFps, float screen
         }
         ImGui::EndMenu();
     }
+    if (ImGui::BeginMenu("Help")) {
+        if (ImGui::MenuItem("About")) {
+            state.showAbout = true;
+        }
+        ImGui::EndMenu();
+    }
 
-    // Right status cluster
     const char* title = emu.cart().title().empty() ? "GB DMG" : emu.cart().title().c_str();
     char fpsBuf[32];
     std::snprintf(fpsBuf, sizeof(fpsBuf), "%.0f FPS", hostFps);
 
-    // Measure badges roughly
     const float pad = 10.0f;
     float rightX = screenW - pad;
     auto placeBadge = [&](const char* text, ImVec4 bg, ImVec4 fg) {
@@ -647,7 +690,6 @@ void drawMenuBar(Emulator& emu, DebugUiState& state, float hostFps, float screen
         Badge(text, bg, fg);
     };
 
-    // Place from right to left
     if (emu.muted()) placeBadge("MUTE", ImVec4(0.40f, 0.15f, 0.18f, 1.f), kDanger);
     placeBadge(emu.paused() ? "PAUSED" : "RUN",
                emu.paused() ? ImVec4(0.45f, 0.30f, 0.10f, 1.f) : ImVec4(0.12f, 0.38f, 0.28f, 1.f),
@@ -690,7 +732,6 @@ void DebugUi_ToggleSidebar(DebugUiState& state) {
 }
 
 float DebugUi_SidebarWidth(const DebugUiState& /*state*/) {
-    // Overlay: o display do jogo usa a janela inteira.
     return 0.0f;
 }
 
@@ -726,14 +767,13 @@ void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
     const float menuH = ImGui::GetFrameHeight();
 
     drawMenuBar(emu, state, hostFps, screenW);
+    drawAboutModal(state);
 
     if (!state.showSidebar) {
         rlImGuiEnd();
         return;
     }
 
-    // Inspector flutuante (overlay): não encolhe o display do jogo.
-    // Canto superior direito, altura limitada, pode ser arrastado.
     const float sideW = kInspectorWidth;
     const float maxH = screenH - menuH - kInspectorPad * 2.0f;
     const float prefH = std::min(maxH, 720.0f);
@@ -754,7 +794,6 @@ void DebugUi_Draw(Emulator& emu, DebugUiState& state, const DebugUiInput& input,
 
         ImGui::Spacing();
 
-        // Segmented nav: 2 rows × 4
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
         const float btnW = (ImGui::GetContentRegionAvail().x - 6.0f * 3.0f) / 4.0f;
         for (int row = 0; row < 2; ++row) {
