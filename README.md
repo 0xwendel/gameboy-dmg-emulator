@@ -4,14 +4,15 @@
 
 A **Game Boy (DMG)** emulator written in C++20, with a **raylib** frontend, **Dear ImGui** debug inspector, and embedded GLSL screen shaders.
 
-Built for real gameplay: CPU, PPU, timers, joypad, MBC cartridges, stereo APU, save states, MBC3 RTC, Xbox 360 pad support, and a centered native-aspect display with post-processing.
+Built for real gameplay: CPU, PPU, timers, joypad, MBC cartridges, stereo APU, save states, MBC3 RTC, gamepad support, and a centered native-aspect display with post-processing.
 
 | | |
 |---|---|
-| **Version** | 0.4.2 |
+| **Version** | 0.4.3 |
 | **Language** | C++20 |
 | **Build** | CMake ≥ 3.20 (Ninja, Make, or MSVC — generator depends on the environment) |
-| **Platform** | Windows (primary; dependencies are cross-platform) |
+| **Platform** | **Windows** and **Linux** (macOS untested; stack is portable) |
+| **CI** | GitHub Actions (Ubuntu + Windows MSYS2) |
 | **Repo** | [github.com/0xwendel/gameboy-dmg-emulator](https://github.com/0xwendel/gameboy-dmg-emulator) |
 
 ---
@@ -46,7 +47,7 @@ Built for real gameplay: CPU, PPU, timers, joypad, MBC cartridges, stereo APU, s
 | **PPU** | BG, Window, 8×8/8×16 sprites, STAT, LYC, priority |
 | **Timer** | DIV falling-edge, TIMA/TMA/TAC, reload delay |
 | **APU** | 4 channels (2× square, wave, noise), DIV frame sequencer, high-pass, 44.1 kHz stereo |
-| **Serial** | SB/SC, internal clock, open cable (`0xFF` + IRQ) |
+| **Serial** | SB/SC; internal clock completes open-bus `$FF`; external clock waits (no peer) |
 | **Joypad** | Active-low bus, multiplexing, edge IRQ |
 
 ### Cartridges
@@ -63,7 +64,7 @@ Built for real gameplay: CPU, PPU, timers, joypad, MBC cartridges, stereo APU, s
 - DMG palettes (Green, Greyscale, Pocket, Brown, Blue, Inverted)
 - Shaders: None, Scanlines, LCD Grid, LCD Matrix, CRT, Soft Glow
 - Fullscreen, mute, speed control, save/load state
-- **Xbox 360 / XInput** (D-Pad, stick, A/B/X/Y, Start/Back, shoulders)
+- **Gamepad** via raylib (Xbox layout: D-Pad, stick, A/B/X/Y, Start/Back, shoulders)
 - Optional boot ROM (`dmg_boot.bin`, 256 bytes)
 
 ### Dependencies (FetchContent)
@@ -81,7 +82,7 @@ Fetched automatically on configure:
 ### Software
 
 - **CMake** ≥ 3.20  
-- **C++20** compiler (MSVC, MinGW/GCC, Clang)  
+- **C++20** compiler (GCC ≥ 10, Clang ≥ 12, MSVC, MinGW)  
 - **Git** (for FetchContent)  
 - OpenGL 3.3+ (desktop)  
 - Network on the **first** configure (dependency download)
@@ -92,6 +93,30 @@ Fetched automatically on configure:
 pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja git
 ```
 
+### Linux (Debian / Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake ninja-build git \
+  libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+  libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev
+```
+
+### Linux (Fedora)
+
+```bash
+sudo dnf install gcc-c++ cmake ninja-build git \
+  alsa-lib-devel libX11-devel libXrandr-devel libXi-devel \
+  mesa-libGL-devel mesa-libGLU-devel libXcursor-devel libXinerama-devel
+```
+
+### Linux (Arch)
+
+```bash
+sudo pacman -S base-devel cmake ninja git \
+  alsa-lib libx11 libxrandr libxi mesa glu libxcursor libxinerama
+```
+
 ---
 
 ## Build
@@ -100,15 +125,25 @@ pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x
 git clone https://github.com/0xwendel/gameboy-dmg-emulator.git
 cd gameboy-dmg-emulator
 
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
+
+On Linux/macOS, `-DCMAKE_BUILD_TYPE=Release` is recommended (single-config generators).  
+On multi-config generators (Visual Studio), `--config Release` selects the configuration.
 
 Typical binary path:
 
 ```text
 build/gb-dmg.exe    # Windows
-build/gb-dmg        # Unix
+build/gb-dmg        # Linux / Unix
+```
+
+Optional install (Linux):
+
+```bash
+cmake --install build --prefix ~/.local
+# → ~/.local/bin/gb-dmg
 ```
 
 If a `roms/` folder exists in the project root, CMake copies it next to the binary after build (dev convenience). **Do not commit commercial ROMs** (see [Legal](#legal)).
@@ -118,19 +153,22 @@ If a `roms/` folder exists in the project root, CMake copies it next to the bina
 ## Run
 
 ```bash
-# Game
+# Game (Linux / Unix)
+./build/gb-dmg "path/to/game.gb"
+
+# Game (Windows)
 ./build/gb-dmg.exe "path/to/game.gb"
 
 # Common options
-./build/gb-dmg.exe --scale 4 --shader 4 --palette 0 game.gb
-./build/gb-dmg.exe --muted --smooth game.gb
-./build/gb-dmg.exe --boot dmg_boot.bin game.gb
+./build/gb-dmg --scale 4 --shader 4 --palette 0 game.gb
+./build/gb-dmg --muted --smooth game.gb
+./build/gb-dmg --boot dmg_boot.bin game.gb
 
-# Unit tests
-./build/gb-dmg.exe --test
+# Unit tests (no window required)
+./build/gb-dmg --test
 
 # Help
-./build/gb-dmg.exe --help
+./build/gb-dmg --help
 ```
 
 ### CLI
@@ -177,7 +215,9 @@ With no ROM argument, the binary may try a dev fallback under `roms/…` (if pre
 | F11 | Fullscreen |
 | F12 | Inspector (overlay) |
 
-### Xbox 360 / XInput
+### Gamepad (Xbox layout)
+
+Works through **raylib** on both Windows (XInput) and Linux (joystick / evdev).
 
 | Control | Game Boy |
 |---------|----------|
@@ -323,6 +363,8 @@ Work in progress. Honest expectations:
 - No full CGB / SGB  
 - No netplay / rewind / cheats (yet)  
 - Accuracy varies by commercial title  
+- **Linux** needs X11/OpenGL desktop packages (see Requirements); Wayland usually works via XWayland  
+- **macOS** not tested yet  
 
 Issues and PRs are welcome.
 

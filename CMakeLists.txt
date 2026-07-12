@@ -1,20 +1,31 @@
 cmake_minimum_required(VERSION 3.20)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(gb-dmg VERSION 0.4.2 LANGUAGES CXX)
+project(gb-dmg VERSION 0.4.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Single-config generators (Make/Ninja on Linux/macOS): default to Release.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 include(FetchContent)
+find_package(Threads REQUIRED)
 
 # --- raylib 5.5 (matches rlImGui Raylib_5_5) ---
+# Desktop OpenGL; system packages required on Linux (see README).
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
+set(PLATFORM "Desktop" CACHE STRING "" FORCE)
+
 FetchContent_Declare(
   raylib
   URL https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(raylib)
 
 # --- Dear ImGui 1.92.x (texture API required by current rlImGui) ---
@@ -81,7 +92,17 @@ add_executable(gb-dmg ${GB_SOURCES})
 
 target_include_directories(gb-dmg PRIVATE include)
 
-target_link_libraries(gb-dmg PRIVATE raylib imgui rlimgui)
+target_link_libraries(gb-dmg PRIVATE raylib imgui rlimgui Threads::Threads)
+
+if(UNIX AND NOT APPLE)
+  # raylib static may not always propagate every system lib on all distros.
+  find_package(OpenGL REQUIRED)
+  target_link_libraries(gb-dmg PRIVATE OpenGL::GL ${CMAKE_DL_LIBS} m)
+endif()
+
+if(APPLE)
+  target_link_libraries(gb-dmg PRIVATE "-framework IOKit" "-framework Cocoa" "-framework OpenGL")
+endif()
 
 if(MSVC)
   target_compile_options(gb-dmg PRIVATE /W4)
@@ -98,3 +119,5 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/roms")
     COMMENT "Copying roms/ next to binary"
   )
 endif()
+
+install(TARGETS gb-dmg RUNTIME DESTINATION bin)

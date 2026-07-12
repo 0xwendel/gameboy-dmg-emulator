@@ -4,14 +4,15 @@
 
 Emulador de **Game Boy (DMG)** em C++20, com frontend **raylib**, inspector **Dear ImGui** e shaders GLSL embutidos.
 
-Feito para jogar de verdade: CPU, PPU, timers, joypad, cartuchos MBC, APU estéreo, save states, RTC MBC3, controle Xbox 360 e display centrado com pós-processamento.
+Feito para jogar de verdade: CPU, PPU, timers, joypad, cartuchos MBC, APU estéreo, save states, RTC MBC3, gamepad e display centrado com pós-processamento.
 
 | | |
 |---|---|
-| **Versão** | 0.4.2 |
+| **Versão** | 0.4.3 |
 | **Linguagem** | C++20 |
 | **Build** | CMake ≥ 3.20 (Ninja, Make ou MSVC — o gerador depende do ambiente) |
-| **Plataforma** | Windows (principal; dependências multiplataforma) |
+| **Plataforma** | **Windows** e **Linux** (macOS não testado; stack portátil) |
+| **CI** | GitHub Actions (Ubuntu + Windows MSYS2) |
 | **Repo** | [github.com/0xwendel/gameboy-dmg-emulator](https://github.com/0xwendel/gameboy-dmg-emulator) |
 
 ---
@@ -46,7 +47,7 @@ Feito para jogar de verdade: CPU, PPU, timers, joypad, cartuchos MBC, APU estér
 | **PPU** | BG, Window, sprites 8×8/8×16, STAT, LYC, prioridade |
 | **Timer** | DIV falling-edge, TIMA/TMA/TAC, reload delay |
 | **APU** | 4 canais (2× square, wave, noise), frame sequencer no DIV, high-pass, 44.1 kHz estéreo |
-| **Serial** | SB/SC, clock interno, cabo aberto (`0xFF` + IRQ) |
+| **Serial** | SB/SC; clock interno completa com `$FF` (cabo aberto); clock externo espera (sem peer) |
 | **Joypad** | Active-low, multiplex, edge IRQ |
 
 ### Cartuchos
@@ -63,7 +64,7 @@ Feito para jogar de verdade: CPU, PPU, timers, joypad, cartuchos MBC, APU estér
 - Paletas DMG (Green, Greyscale, Pocket, Brown, Blue, Inverted)
 - Shaders: None, Scanlines, LCD Grid, LCD Matrix, CRT, Soft Glow
 - Fullscreen, mute, velocidade, save/load state
-- **Xbox 360 / XInput** (D-Pad, stick, A/B/X/Y, Start/Back, ombros)
+- **Gamepad** via raylib (layout Xbox: D-Pad, stick, A/B/X/Y, Start/Back, ombros)
 - Boot ROM opcional (`dmg_boot.bin`, 256 bytes)
 
 ### Dependências (FetchContent)
@@ -81,7 +82,7 @@ Baixadas no configure:
 ### Software
 
 - **CMake** ≥ 3.20  
-- Compilador **C++20** (MSVC, MinGW/GCC, Clang)  
+- Compilador **C++20** (GCC ≥ 10, Clang ≥ 12, MSVC, MinGW)  
 - **Git** (FetchContent)  
 - OpenGL 3.3+  
 - Rede na **primeira** configuração  
@@ -92,6 +93,30 @@ Baixadas no configure:
 pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-ninja git
 ```
 
+### Linux (Debian / Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake ninja-build git \
+  libasound2-dev libx11-dev libxrandr-dev libxi-dev \
+  libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev
+```
+
+### Linux (Fedora)
+
+```bash
+sudo dnf install gcc-c++ cmake ninja-build git \
+  alsa-lib-devel libX11-devel libXrandr-devel libXi-devel \
+  mesa-libGL-devel mesa-libGLU-devel libXcursor-devel libXinerama-devel
+```
+
+### Linux (Arch)
+
+```bash
+sudo pacman -S base-devel cmake ninja git \
+  alsa-lib libx11 libxrandr libxi mesa glu libxcursor libxinerama
+```
+
 ---
 
 ## Compilar
@@ -100,15 +125,25 @@ pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x
 git clone https://github.com/0xwendel/gameboy-dmg-emulator.git
 cd gameboy-dmg-emulator
 
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
+
+No Linux/macOS, use `-DCMAKE_BUILD_TYPE=Release` (geradores single-config).  
+No Visual Studio, `--config Release` escolhe a configuração.
 
 Binário típico:
 
 ```text
 build/gb-dmg.exe    # Windows
-build/gb-dmg        # Unix
+build/gb-dmg        # Linux / Unix
+```
+
+Install opcional (Linux):
+
+```bash
+cmake --install build --prefix ~/.local
+# → ~/.local/bin/gb-dmg
 ```
 
 Se existir `roms/` na raiz, o CMake copia para o lado do executável (dev). **Não commite ROMs comerciais** (veja [Legal](#legal)).
@@ -118,19 +153,22 @@ Se existir `roms/` na raiz, o CMake copia para o lado do executável (dev). **N�
 ## Executar
 
 ```bash
-# Jogo
+# Jogo (Linux / Unix)
+./build/gb-dmg "caminho/para/jogo.gb"
+
+# Jogo (Windows)
 ./build/gb-dmg.exe "caminho/para/jogo.gb"
 
 # Opções comuns
-./build/gb-dmg.exe --scale 4 --shader 4 --palette 0 jogo.gb
-./build/gb-dmg.exe --muted --smooth jogo.gb
-./build/gb-dmg.exe --boot dmg_boot.bin jogo.gb
+./build/gb-dmg --scale 4 --shader 4 --palette 0 jogo.gb
+./build/gb-dmg --muted --smooth jogo.gb
+./build/gb-dmg --boot dmg_boot.bin jogo.gb
 
-# Testes
-./build/gb-dmg.exe --test
+# Testes (sem abrir janela)
+./build/gb-dmg --test
 
 # Ajuda
-./build/gb-dmg.exe --help
+./build/gb-dmg --help
 ```
 
 ### CLI
@@ -177,7 +215,9 @@ Sem ROM, pode tentar fallback em `roms/…` (se existir). Com `--test`, roda a s
 | F11 | Fullscreen |
 | F12 | Inspector (overlay) |
 
-### Xbox 360 / XInput
+### Gamepad (layout Xbox)
+
+Funciona via **raylib** no Windows (XInput) e no Linux (joystick / evdev).
 
 | Controle | Game Boy |
 |----------|----------|
@@ -323,6 +363,8 @@ Projeto em evolução:
 - Sem CGB / SGB completo  
 - Sem netplay / rewind / cheats (ainda)  
 - Accuracy varia por título  
+- **Linux** precisa dos pacotes X11/OpenGL (veja Requisitos); Wayland costuma ir via XWayland  
+- **macOS** ainda não testado  
 
 Issues e PRs são bem-vindos.
 

@@ -1,7 +1,9 @@
 # Build directories
 build/
+build-linux/
 bin/
 out/
+dist/
 CMakeUserPresets.json
 
 # IDEs and Editors
