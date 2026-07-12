@@ -12,9 +12,6 @@
 #include <string>
 #include <vector>
 
-// -------------------- Testes unitários headless --------------------
-
-// assert() some em Release (NDEBUG); falhas reais precisam abortar de verdade.
 #define REQUIRE(cond)                                                          \
     do {                                                                       \
         if (!(cond)) {                                                         \
@@ -66,27 +63,22 @@ static void testTimersAndInterrupts() {
     mockROM[0x0147] = 0x00;
 
     REQUIRE(emu.loadRom(mockROM, ""));
-    // Programa de teste: TIMA quase no overflow, TAC enable 262144 Hz (4 M-cycles)
     emu.mmu().io()[0x05] = 0xFE;
     emu.mmu().io()[0x06] = 0xAA;
     emu.mmu().io()[0x07] = 0x05;
     emu.mmu().ie() = 0x04;
 
-    // EI (IME após próxima), HALT, depois timer estoura
-    emu.stepInstruction(); // EI
-    emu.stepInstruction(); // HALT (IME já liga depois do HALT na próxima)
+    emu.stepInstruction();
+    emu.stepInstruction();
 
-    // Força vários steps para o timer estourar e acordar
     for (int i = 0; i < 64; ++i) {
         emu.stepInstruction();
         if (emu.cpu().getRegs().pc == 0x0050) break;
     }
 
-    // Pode ter servido a interrupção de timer
     if ((emu.mmu().io()[0x0F] & 0x04) || emu.cpu().getRegs().pc == 0x0050) {
         std::cout << "Timer/IRQ basico ok (IF ou vetor atingido).\n";
     } else {
-        // Fallback: verifica se TIMA recarregou em algum momento
         std::cout << "Timer avanco verificado (TIMA=" << (int)emu.mmu().io()[0x05] << ").\n";
     }
     std::cout << "Todos os testes unitarios de Timers e Interrupcoes passaram!\n\n";
@@ -117,16 +109,15 @@ static void testEIDelay() {
     std::cout << "Executando teste de EI delay...\n";
     Emulator emu;
     std::vector<uint8_t> rom(0x200, 0x00);
-    // 0x100: EI ; 0x101: NOP ; 0x102: NOP
     rom[0x100] = 0xFB;
     rom[0x101] = 0x00;
     rom[0x102] = 0x00;
     rom[0x0147] = 0x00;
     REQUIRE(emu.loadRom(rom, ""));
     REQUIRE(emu.cpu().getIme() == false);
-    emu.stepInstruction(); // EI
-    REQUIRE(emu.cpu().getIme() == false); // ainda off
-    emu.stepInstruction(); // NOP — IME liga depois desta
+    emu.stepInstruction();
+    REQUIRE(emu.cpu().getIme() == false);
+    emu.stepInstruction();
     REQUIRE(emu.cpu().getIme() == true);
     std::cout << "EI delay ok.\n\n";
 }
@@ -140,20 +131,17 @@ static void testAPU() {
     rom[0x0147] = 0x00;
     REQUIRE(emu.loadRom(rom, ""));
 
-    // Power on + volume/pan
     emu.mmu().writeByte(0xFF26, 0x80);
     emu.mmu().writeByte(0xFF24, 0x77);
     emu.mmu().writeByte(0xFF25, 0xFF);
 
-    // CH2 square: duty 50%, max volume, no envelope, trigger
-    emu.mmu().writeByte(0xFF16, 0x80);       // duty 50%, length
-    emu.mmu().writeByte(0xFF17, 0xF0);       // vol 15, env period 0
-    emu.mmu().writeByte(0xFF18, 0x00);       // freq low
-    emu.mmu().writeByte(0xFF19, 0x87);       // freq high + trigger
+    emu.mmu().writeByte(0xFF16, 0x80);
+    emu.mmu().writeByte(0xFF17, 0xF0);
+    emu.mmu().writeByte(0xFF18, 0x00);
+    emu.mmu().writeByte(0xFF19, 0x87);
 
-    REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) != 0); // CH2 on
+    REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) != 0);
 
-    // Gera ~2 frames de samples
     for (int i = 0; i < 2000; ++i) emu.stepInstruction();
 
     REQUIRE(emu.audioSamplesAvailable() > 0);
@@ -162,30 +150,25 @@ static void testAPU() {
     const size_t got = emu.popAudio(buf, 2048);
     REQUIRE(got > 0);
 
-    // Deve haver energia no sinal (não silêncio total)
     int64_t energy = 0;
     for (size_t i = 0; i < got * 2; ++i) {
         energy += std::abs(static_cast<int>(buf[i]));
     }
     REQUIRE(energy > 0);
 
-    // Power off silencia canais
     emu.mmu().writeByte(0xFF26, 0x00);
     REQUIRE((emu.mmu().readByte(0xFF26) & 0x0F) == 0);
 
-    // Frame sequencer: length counter com enable deve desligar canal
     emu.mmu().writeByte(0xFF26, 0x80);
     emu.mmu().writeByte(0xFF24, 0x77);
     emu.mmu().writeByte(0xFF25, 0xFF);
-    emu.mmu().writeByte(0xFF16, 0x3F); // length = 1
+    emu.mmu().writeByte(0xFF16, 0x3F);
     emu.mmu().writeByte(0xFF17, 0xF0);
     emu.mmu().writeByte(0xFF18, 0x00);
-    emu.mmu().writeByte(0xFF19, 0xC7); // trigger + length enable
+    emu.mmu().writeByte(0xFF19, 0xC7);
     REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) != 0);
 
-    // Avança tempo suficiente para vários clocks de length (512 Hz)
     for (int i = 0; i < 50000; ++i) emu.stepInstruction();
-    // Canal deve ter sido desligado pelo length
     REQUIRE((emu.mmu().readByte(0xFF26) & 0x02) == 0);
 
     std::cout << "Todos os testes unitarios da APU passaram!\n\n";
@@ -200,15 +183,14 @@ static void testSerial() {
     REQUIRE(emu.loadRom(rom, ""));
 
     emu.mmu().writeByte(0xFF01, 0xA5);
-    emu.mmu().writeByte(0xFF02, 0x81); // start + internal clock
+    emu.mmu().writeByte(0xFF02, 0x81);
     REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) != 0);
 
-    // 8 bits * 512 T-cycles = 4096 T ≈ 1024 M-cycles → muitos NOPs
     for (int i = 0; i < 5000; ++i) emu.stepInstruction();
 
     REQUIRE((emu.mmu().readByte(0xFF02) & 0x80) == 0);
-    REQUIRE(emu.mmu().readByte(0xFF01) == 0xFF); // cabo aberto
-    REQUIRE((emu.mmu().readByte(0xFF0F) & 0x08) != 0); // serial IF
+    REQUIRE(emu.mmu().readByte(0xFF01) == 0xFF);
+    REQUIRE((emu.mmu().readByte(0xFF0F) & 0x08) != 0);
     std::cout << "Serial ok.\n\n";
 }
 
@@ -222,12 +204,11 @@ static void testMBC3Rtc() {
     REQUIRE(cart.hasRtc());
     REQUIRE(cart.hasBattery());
 
-    cart.write(0x0000, 0x0A); // enable RAM/RTC
-    cart.write(0x4000, 0x08); // select RTC S
+    cart.write(0x0000, 0x0A);
+    cart.write(0x4000, 0x08);
     cart.write(0xA000, 30);
     cart.write(0x4000, 0x09);
     cart.write(0xA000, 15);
-    // Latch 0->1
     cart.write(0x6000, 0x00);
     cart.write(0x6000, 0x01);
     cart.write(0x4000, 0x08);
@@ -249,9 +230,6 @@ static int runUnitTests() {
     return 0;
 }
 
-// -------------------- Frontend --------------------
-
-// Xbox 360 / XInput via raylib (GLFW). Preferimos o primeiro pad conectado.
 static constexpr int kMaxGamepads = 4;
 static constexpr float kStickDeadzone = 0.45f;
 
@@ -262,7 +240,6 @@ static int findFirstGamepad() {
     return -1;
 }
 
-// Combina teclado + gamepad no mesmo DebugUiInput (OR dos botões).
 static void pollKeyboardPad(DebugUiInput& pad) {
     pad.keyUp = IsKeyDown(KEY_W) || IsKeyDown(KEY_UP);
     pad.keyDown = IsKeyDown(KEY_S) || IsKeyDown(KEY_DOWN);
@@ -283,13 +260,11 @@ static void pollXboxGamepad(DebugUiInput& pad) {
 
     pad.gamepadName = GetGamepadName(gp);
 
-    // D-Pad digital
     if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_UP)) pad.keyUp = true;
     if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) pad.keyDown = true;
     if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) pad.keyLeft = true;
     if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) pad.keyRight = true;
 
-    // Analógico esquerdo (Xbox 360 left stick)
     const float lx = GetGamepadAxisMovement(gp, GAMEPAD_AXIS_LEFT_X);
     const float ly = GetGamepadAxisMovement(gp, GAMEPAD_AXIS_LEFT_Y);
     if (ly < -kStickDeadzone) pad.keyUp = true;
@@ -297,23 +272,15 @@ static void pollXboxGamepad(DebugUiInput& pad) {
     if (lx < -kStickDeadzone) pad.keyLeft = true;
     if (lx > kStickDeadzone) pad.keyRight = true;
 
-    // Face buttons (layout Xbox):
-    //   A (baixo)  = GB A
-    //   B (direita)= GB B
-    //   X (esquerda)= GB B (extra, comum em emuladores)
-    //   Y (cima)   = GB A (extra)
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) pad.keyA = true;  // A
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_UP)) pad.keyA = true;    // Y
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) pad.keyB = true; // B
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)) pad.keyB = true;  // X
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) pad.keyA = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_UP)) pad.keyA = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) pad.keyB = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_FACE_LEFT)) pad.keyB = true;
 
-    // Start / Back (Select)
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_MIDDLE_RIGHT)) pad.keyStart = true; // Start
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_MIDDLE_LEFT)) pad.keySelect = true; // Back
-
-    // Ombros como atalhos opcionais de Select/Start (útil em alguns pads)
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) pad.keySelect = true;  // LB
-    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) pad.keyStart = true;  // RB
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_MIDDLE_RIGHT)) pad.keyStart = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_MIDDLE_LEFT)) pad.keySelect = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) pad.keySelect = true;
+    if (IsGamepadButtonDown(gp, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) pad.keyStart = true;
 }
 
 static void applyPadToEmu(Emulator& emu, const DebugUiInput& pad) {
@@ -430,7 +397,6 @@ int main(int argc, char** argv) {
 
     const int SCREEN_WIDTH = 160;
     const int SCREEN_HEIGHT = 144;
-    // Janela centrada no display GB (aspecto nativo); inspector é overlay (F12).
     const int UI_MENUBAR = 28;
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI);
@@ -442,7 +408,6 @@ int main(int argc, char** argv) {
     SetExitKey(KEY_NULL);
 
     InitAudioDevice();
-    // 1024 frames ≈ 23 ms/bloco: mais estável no WASAPI; menos estalos/underrun.
     constexpr int kAudioBufferFrames = 1024;
     SetAudioStreamBufferSizeDefault(kAudioBufferFrames);
     AudioStream audioStream = LoadAudioStream(APU::kSampleRate, 16, 2);
@@ -484,7 +449,6 @@ int main(int argc, char** argv) {
     while (!WindowShouldClose()) {
         const bool uiCapturesKeyboard = DebugUi_WantCaptureKeyboard();
 
-        // --- Input: teclado (se ImGui nao capturar) + gamepad (sempre) ---
         DebugUiInput pad{};
         if (!uiCapturesKeyboard) {
             pollKeyboardPad(pad);
@@ -538,7 +502,6 @@ int main(int argc, char** argv) {
                 DebugUi_ApplyPalette(emu, uiState);
                 DebugUi_SetStatus(uiState, std::string("Palette: ") + kPalettes[uiState.paletteIndex].name);
             }
-            // ; e ' (e teclas OEM equivalentes no layout US)
             if (IsKeyPressed(KEY_SEMICOLON)) {
                 screenShaders.cyclePrev();
                 uiState.shaderIndex = screenShaders.activeIndex();
@@ -551,7 +514,6 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Sync shader se a UI mudou o índice
         if (uiState.shaderIndex != screenShaders.activeIndex()) {
             screenShaders.setActiveIndex(uiState.shaderIndex);
             uiState.shaderIndex = screenShaders.activeIndex();
@@ -572,7 +534,6 @@ int main(int argc, char** argv) {
             lastSmooth = uiState.smoothFilter;
         }
 
-        // --- Emulação ---
         frameAccumulator += emu.speed();
         int framesToRun = static_cast<int>(frameAccumulator);
         if (framesToRun > 8) framesToRun = 8;
@@ -581,10 +542,7 @@ int main(int argc, char** argv) {
             emu.runFrame();
         }
 
-        // --- Áudio ---
-        // Mantém um pequeno colchão na APU (~100 ms) e nunca reescreve frame
-        // incompleto com “hold” (isso gerava zumbido/zipper). Silêncio no underrun.
-        constexpr size_t kMaxApuLatencyFrames = APU::kSampleRate / 10; // ~100 ms
+        constexpr size_t kMaxApuLatencyFrames = APU::kSampleRate / 10;
         if (emu.audioSamplesAvailable() > kMaxApuLatencyFrames) {
             int16_t discard[2048];
             while (emu.audioSamplesAvailable() > static_cast<size_t>(kAudioBufferFrames) * 2u) {
@@ -607,7 +565,6 @@ int main(int argc, char** argv) {
         UpdateTexture(screenTexture, emu.frameBuffer());
 
         BeginDrawing();
-        // Letterbox: fundo neutro; o display GB fica centrado na área útil.
         ClearBackground(GetColor(0x0B0C0EFF));
 
         const float menuBarH = DebugUi_MenuBarHeight();
@@ -616,7 +573,6 @@ int main(int argc, char** argv) {
         const float viewW = static_cast<float>(GetScreenWidth());
         const float viewH = static_cast<float>(GetScreenHeight()) - menuBarH;
 
-        // Encaixa 160×144 na viewport inteira (inspector NÃO rouba espaço).
         float fitScale = 1.0f;
         if (uiState.integerScale) {
             const int fitX = std::max(1, static_cast<int>(viewW) / SCREEN_WIDTH);
@@ -633,7 +589,6 @@ int main(int argc, char** argv) {
         const float gameLeft = viewX + (viewW - drawW) * 0.5f;
         const float gameTop = viewY + (viewH - drawH) * 0.5f;
 
-        // Bezel sutil ao redor da tela emulada
         const float bezel = std::max(2.0f, fitScale * 0.5f);
         DrawRectangleRec(
             Rectangle{gameLeft - bezel, gameTop - bezel, drawW + bezel * 2.0f, drawH + bezel * 2.0f},

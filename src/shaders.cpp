@@ -5,7 +5,6 @@
 
 namespace {
 
-// Vertex padrão raylib (GLSL 330) — necessário no LoadShaderFromMemory.
 constexpr const char* kDefaultVs = R"(#version 330
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
@@ -20,7 +19,6 @@ void main() {
 }
 )";
 
-// Pass-through (None usa DrawTexturePro sem shader; este FS é fallback).
 constexpr const char* kFsNone = R"(#version 330
 in vec2 fragTexCoord;
 in vec4 fragColor;
@@ -31,7 +29,6 @@ void main() {
 }
 )";
 
-// Scanlines horizontais (CRT leve).
 constexpr const char* kFsScanlines = R"(#version 330
 in vec2 fragTexCoord;
 in vec4 fragColor;
@@ -42,7 +39,6 @@ uniform float intensity;
 void main() {
     vec4 tex = texture(texture0, fragTexCoord) * fragColor;
     float y = fragTexCoord.y * max(resolution.y, 1.0);
-    // Linha par/ímpar + seno suave
     float line = mod(floor(y), 2.0);
     float wave = 0.85 + 0.15 * sin(y * 3.14159265);
     float dark = mix(1.0, mix(wave, 0.72, line), clamp(intensity, 0.0, 1.0));
@@ -50,7 +46,6 @@ void main() {
 }
 )";
 
-// Grade LCD: contorno entre pixels lógicos 160×144.
 constexpr const char* kFsLcdGrid = R"(#version 330
 in vec2 fragTexCoord;
 in vec4 fragColor;
@@ -64,12 +59,10 @@ void main() {
     float edge = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
     float grid = smoothstep(0.0, 0.12, edge);
     float mixAmt = mix(1.0, grid * 0.55 + 0.45, clamp(intensity, 0.0, 1.0));
-    // leve vinheta de célula
     finalColor = vec4(tex.rgb * mixAmt, tex.a);
 }
 )";
 
-// Matriz RGB subpixel (simula stripes de LCD colorido / pocket).
 constexpr const char* kFsLcdMatrix = R"(#version 330
 in vec2 fragTexCoord;
 in vec4 fragColor;
@@ -81,23 +74,19 @@ void main() {
     vec4 tex = texture(texture0, fragTexCoord) * fragColor;
     vec2 gb = fragTexCoord * vec2(160.0, 144.0);
     vec2 f = fract(gb);
-    // Subpixels R-G-B horizontais
     float third = 1.0 / 3.0;
     vec3 mask = vec3(0.15);
     if (f.x < third) mask.r = 1.0;
     else if (f.x < 2.0 * third) mask.g = 1.0;
     else mask.b = 1.0;
-    // Gap vertical entre linhas
     if (f.y < 0.08 || f.y > 0.92) mask *= 0.35;
     vec3 rgb = tex.rgb * mix(vec3(1.0), mask, clamp(intensity, 0.0, 1.0) * 0.85);
-    // Mantém luminância aproximada
     float lum = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
     rgb = mix(vec3(lum), rgb, 0.85);
     finalColor = vec4(rgb, tex.a);
 }
 )";
 
-// CRT: barrel distortion + scanlines + vignette.
 constexpr const char* kFsCrt = R"(#version 330
 in vec2 fragTexCoord;
 in vec4 fragColor;
@@ -112,7 +101,6 @@ void main() {
     float barrel = 0.18 * clamp(intensity, 0.0, 1.0);
     uv = uv + cc * dist * barrel;
 
-    // Fora da tela
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         finalColor = vec4(0.0, 0.0, 0.0, 1.0);
         return;
@@ -124,11 +112,9 @@ void main() {
     float line = mod(floor(y), 2.0);
     scan = mix(scan, scan * 0.78, line);
 
-    // Vignette
     float vig = 1.0 - dist * (1.2 * intensity);
     vig = clamp(vig, 0.55, 1.0);
 
-    // Aberração cromática leve
     float ab = 0.0015 * intensity;
     float r = texture(texture0, uv + vec2(ab, 0.0)).r;
     float b = texture(texture0, uv - vec2(ab, 0.0)).b;
@@ -138,7 +124,6 @@ void main() {
 }
 )";
 
-// Soft glow: blur 9-tap + mix (suaviza pixels).
 constexpr const char* kFsSoftGlow = R"(#version 330
 in vec2 fragTexCoord;
 in vec4 fragColor;
@@ -216,7 +201,6 @@ bool ScreenShaders::loadOne(ScreenShaderId id, const char* fsCode) {
 bool ScreenShaders::load() {
     unload();
     bool any = false;
-    // None não precisa de shader GPU — marcamos como "carregado" lógico
     m_loaded[static_cast<int>(ScreenShaderId::None)] = true;
     any = true;
 
