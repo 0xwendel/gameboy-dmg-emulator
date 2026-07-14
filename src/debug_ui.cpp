@@ -564,6 +564,19 @@ void panelDisplay(Emulator& emu, DebugUiState& state, int scale, float gameW, fl
         }
         ImGui::EndCombo();
     }
+    ImGui::SliderFloat("Intensity", &state.shaderIntensity, 0.0f, 1.0f, "%.2f");
+    if (state.shaderIndex == static_cast<int>(ScreenShaderId::Crt)) {
+        if (ImGui::BeginCombo("CRT preset", CrtPresetName(static_cast<CrtPreset>(state.crtPreset)))) {
+            for (int i = 0; i < CrtPresetCount(); ++i) {
+                const bool sel = (i == state.crtPreset);
+                if (ImGui::Selectable(CrtPresetName(static_cast<CrtPreset>(i)), sel)) {
+                    state.crtPreset = i;
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+    }
     ImGui::Checkbox("Smooth filter", &state.smoothFilter);
     ImGui::Checkbox("Integer scale", &state.integerScale);
     EndCard();

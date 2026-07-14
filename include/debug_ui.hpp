@@ -31,6 +31,8 @@ struct DebugUiState {
 
     int paletteIndex = 0;
     int shaderIndex = 0;
+    float shaderIntensity = 0.85f;
+    int crtPreset = 2; // CrtPreset::Broken
     bool smoothFilter = false;
     bool integerScale = true;
 
