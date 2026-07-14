@@ -181,6 +181,8 @@ If a `roms/` folder exists in the project root, CMake copies it next to the bina
 | `--boot PATH` | DMG boot ROM (256 bytes) |
 | `--palette N` | Palette index (`0`…`5`) |
 | `--shader N` | Shader index (`0`…`5`) |
+| `--intensity F` | Shader intensity `0..1` (default `0.85`) |
+| `--crt-preset N` | CRT preset `0` Clean / `1` Realistic / `2` Broken |
 | `--smooth` | Bilinear texture filter |
 | `-h` / `--help` | Usage and controls |
 
@@ -264,8 +266,18 @@ Menu bar: **View** (inspector, filter, palette, shader) and **Emulator** (pause,
 | 1 | Scanlines | CRT horizontal lines |
 | 2 | LCD Grid | Grid between logical pixels |
 | 3 | LCD Matrix | R/G/B subpixel stripes |
-| 4 | CRT | Barrel, scanlines, vignette |
+| 4 | CRT | Multi-pass: barrel, beam scanlines, aperture mask, bloom, vintage flaws |
 | 5 | Soft Glow | Soft blur / glow |
+
+**CRT options** (`--intensity F`, `--crt-preset N`, or Inspector → Display):
+
+| Preset | N | Look |
+|--------|---|------|
+| Clean | 0 | Optics only (curve, mask, scan, light bloom) — no noise/flicker |
+| Realistic | 1 | Mild grain, flicker, rolling bar, wobble |
+| Broken | 2 | Maximum vintage: strong static, flicker, roll, jitter (default) |
+
+Intensity (`0..1`, default `0.85`) scales the whole CRT stack.
 
 ### Palettes (`--palette N` or `[` / `]`)
 
