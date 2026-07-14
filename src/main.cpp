@@ -429,6 +429,8 @@ static void printUsage(const char* argv0) {
         << "  --palette N     Palette 0.." << (kPaletteCount - 1) << " (default 0 DMG Green)\n"
         << "  --shader N      Shader 0.." << (ScreenShaderCount() - 1)
         << " (0=None 1=Scanlines 2=LCD 3=Matrix 4=CRT 5=Glow)\n"
+        << "  --intensity F   Shader intensity 0..1 (default 0.85)\n"
+        << "  --crt-preset N  CRT preset 0=Clean 1=Realistic 2=Broken (default 2)\n"
         << "  --smooth        Bilinear filter on the display\n"
         << "\nControls (keyboard):\n"
         << "  Arrows/WASD     D-Pad\n"
@@ -462,6 +464,8 @@ int main(int argc, char** argv) {
     int scale = 4;
     int paletteIndex = 0;
     int shaderIndex = 0;
+    float shaderIntensity = 0.85f;
+    int crtPreset = 2;
     bool muted = false;
     bool smooth = false;
     bool runTests = false;
@@ -482,6 +486,10 @@ int main(int argc, char** argv) {
             paletteIndex = std::atoi(argv[++i]);
         } else if (arg == "--shader" && i + 1 < argc) {
             shaderIndex = std::atoi(argv[++i]);
+        } else if (arg == "--intensity" && i + 1 < argc) {
+            shaderIntensity = std::clamp(static_cast<float>(std::atof(argv[++i])), 0.0f, 1.0f);
+        } else if (arg == "--crt-preset" && i + 1 < argc) {
+            crtPreset = std::clamp(std::atoi(argv[++i]), 0, CrtPresetCount() - 1);
         } else if (arg == "--help" || arg == "-h") {
             printUsage(argv[0]);
             return 0;
@@ -547,17 +555,26 @@ int main(int argc, char** argv) {
         std::cerr << "Warning: failed to load shaders; using None.\n";
     }
     screenShaders.setActiveIndex(std::clamp(shaderIndex, 0, ScreenShaderCount() - 1));
+    screenShaders.setIntensity(shaderIntensity);
+    screenShaders.setCrtPresetIndex(crtPreset);
 
     DebugUi_Init();
     DebugUiState uiState;
     uiState.paletteIndex = std::clamp(paletteIndex, 0, kPaletteCount - 1);
     uiState.shaderIndex = screenShaders.activeIndex();
+    uiState.shaderIntensity = screenShaders.intensity();
+    uiState.crtPreset = screenShaders.crtPresetIndex();
     uiState.smoothFilter = smooth;
     DebugUi_ApplyPalette(emu, uiState);
     DebugUi_SetStatus(uiState, "F12 inspector  |  F11 fullscreen  |  ;/' shader");
 
     std::cout << "Emulator started. Centered display; F12 = inspector (overlay)\n";
-    std::cout << "Shader: " << ScreenShaderName(screenShaders.active()) << "\n";
+    std::cout << "Shader: " << ScreenShaderName(screenShaders.active())
+              << "  intensity=" << screenShaders.intensity();
+    if (screenShaders.active() == ScreenShaderId::Crt) {
+        std::cout << "  crt=" << CrtPresetName(screenShaders.crtPreset());
+    }
+    std::cout << "\n";
     if (IsGamepadAvailable(0)) {
         std::cout << "Gamepad detected: " << GetGamepadName(0) << "\n";
     } else {
@@ -645,6 +662,14 @@ int main(int argc, char** argv) {
         if (uiState.shaderIndex != screenShaders.activeIndex()) {
             screenShaders.setActiveIndex(uiState.shaderIndex);
             uiState.shaderIndex = screenShaders.activeIndex();
+        }
+        if (uiState.shaderIntensity != screenShaders.intensity()) {
+            screenShaders.setIntensity(uiState.shaderIntensity);
+            uiState.shaderIntensity = screenShaders.intensity();
+        }
+        if (uiState.crtPreset != screenShaders.crtPresetIndex()) {
+            screenShaders.setCrtPresetIndex(uiState.crtPreset);
+            uiState.crtPreset = screenShaders.crtPresetIndex();
         }
 
         if (IsKeyPressed(KEY_F11)) {
