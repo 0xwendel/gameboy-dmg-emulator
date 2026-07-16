@@ -336,6 +336,7 @@ Cobertura atual:
 - APU (energia, power, length)  
 - Serial (transfer + IF)  
 - MBC3 RTC (latch / read)
+- Save-state roundtrip (MBC1 RAM + MBC3 RTC)
 
 ---
 
@@ -344,7 +345,7 @@ Cobertura atual:
 | Tipo | Arquivo | Conteúdo |
 |------|---------|----------|
 | Bateria | `<rom>.sav` | SRAM (+ 48 bytes RTC se MBC3+timer) |
-| State | `<rom>.sav.state` | CPU, MMU, PPU, Timer, APU, serial… |
+| State | `<rom>.sav.state` | CPU, MMU, PPU, Timer, APU, serial, cart (SRAM/banks/RTC) |
 
 Atalhos: **F1** (SRAM), **F5** (save state), **F9** (load state).  
 Ao sair, a SRAM é salva se o cartucho tiver bateria.

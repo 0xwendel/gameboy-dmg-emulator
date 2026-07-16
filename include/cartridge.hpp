@@ -31,6 +31,9 @@ public:
     bool saveBattery(const std::string& path) const;
     bool loadBattery(const std::string& path);
 
+    void serialize(std::vector<uint8_t>& out) const;
+    bool deserialize(const uint8_t*& ptr, const uint8_t* end);
+
     MbcType type() const { return m_type; }
     const std::string& title() const { return m_title; }
     const std::string& romPath() const { return m_romPath; }

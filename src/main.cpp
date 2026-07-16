@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -230,6 +231,86 @@ static void testMBC3Rtc() {
     std::cout << "MBC3 RTC OK.\n\n";
 }
 
+static void testSaveStateRoundtrip() {
+    std::cout << "Running save-state roundtrip tests...\n";
+
+    {
+        Emulator emu;
+        std::vector<uint8_t> rom(0x8000, 0x00);
+        rom[0x0147] = 0x03;
+        rom[0x0148] = 0x00;
+        rom[0x0149] = 0x02;
+        REQUIRE(emu.loadRom(rom, "test_state_mbc1.gb"));
+
+        emu.cart().write(0x0000, 0x0A);
+        emu.cart().write(0x2000, 0x01);
+        emu.cart().write(0x4000, 0x01);
+        emu.cart().write(0x6000, 0x01);
+        emu.cart().write(0xA000, 0xAB);
+
+        emu.cpu().getRegs().a = 0x42;
+        emu.cpu().getRegs().pc = 0x0150;
+        emu.mmu().writeByteDirect(0xC000, 0xDE);
+
+        const std::string path = "test_state_mbc1.sav.state";
+        REQUIRE(emu.saveState(path));
+
+        emu.cart().write(0xA000, 0x00);
+        emu.cart().write(0x0000, 0x00);
+        emu.cpu().getRegs().a = 0x00;
+        emu.cpu().getRegs().pc = 0x0100;
+        emu.mmu().writeByteDirect(0xC000, 0x00);
+
+        REQUIRE(emu.loadState(path));
+        REQUIRE(emu.cpu().getRegs().a == 0x42);
+        REQUIRE(emu.cpu().getRegs().pc == 0x0150);
+        REQUIRE(emu.mmu().readByteDirect(0xC000) == 0xDE);
+        REQUIRE(emu.cart().read(0xA000) == 0xAB);
+
+        std::remove(path.c_str());
+    }
+
+    {
+        Emulator emu;
+        std::vector<uint8_t> rom(0x8000, 0x00);
+        rom[0x0147] = 0x0F;
+        rom[0x0149] = 0x02;
+        REQUIRE(emu.loadRom(rom, "test_state_mbc3.gb"));
+
+        emu.cart().write(0x0000, 0x0A);
+        emu.cart().write(0x4000, 0x08);
+        emu.cart().write(0xA000, 30);
+        emu.cart().write(0x4000, 0x09);
+        emu.cart().write(0xA000, 15);
+        emu.cart().write(0x6000, 0x00);
+        emu.cart().write(0x6000, 0x01);
+        emu.cart().write(0x4000, 0x00);
+        emu.cart().write(0xA000, 0xCD);
+
+        const std::string path = "test_state_mbc3.sav.state";
+        REQUIRE(emu.saveState(path));
+
+        emu.cart().write(0xA000, 0x00);
+        emu.cart().write(0x4000, 0x08);
+        emu.cart().write(0xA000, 0);
+        emu.cart().write(0x4000, 0x09);
+        emu.cart().write(0xA000, 0);
+        emu.cart().write(0x4000, 0x00);
+
+        REQUIRE(emu.loadState(path));
+        emu.cart().write(0x4000, 0x08);
+        REQUIRE((emu.cart().read(0xA000) & 0x3F) == 30);
+        emu.cart().write(0x4000, 0x09);
+        REQUIRE((emu.cart().read(0xA000) & 0x3F) == 15);
+        emu.cart().write(0x4000, 0x00);
+        REQUIRE(emu.cart().read(0xA000) == 0xCD);
+
+        std::remove(path.c_str());
+    }
+
+    std::cout << "Save-state roundtrip OK.\n\n";
+}
+
 static void testIeHighBitsDoNotFreezeCpu() {
     // Tetris (and others) write IE=$FF. IF bits 5-7 always read as 1.
     // Pending must use only bits 0-4 or the CPU never executes opcodes.
@@ -344,6 +425,7 @@ static int runUnitTests() {
     testAPU();
     testSerial();
     testMBC3Rtc();
+    testSaveStateRoundtrip();
     testIeHighBitsDoNotFreezeCpu();
     testTetrisAcceptsStart(
         "roms/Tetris (World) (Rev 1)/Tetris (World) (Rev 1).gb");

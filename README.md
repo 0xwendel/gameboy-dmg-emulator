@@ -336,6 +336,7 @@ Current coverage (headless / strong `REQUIRE` checks):
 - APU (signal energy, power, length)  
 - Serial (transfer + IF)  
 - MBC3 RTC (latch / read)
+- Save-state roundtrip (MBC1 RAM + MBC3 RTC)
 
 ---
 
@@ -344,7 +345,7 @@ Current coverage (headless / strong `REQUIRE` checks):
 | Type | File | Contents |
 |------|------|----------|
 | Battery | `<rom>.sav` | SRAM (+ 48-byte RTC if MBC3+timer) |
-| State | `<rom>.sav.state` | CPU, MMU, PPU, Timer, APU, serial… |
+| State | `<rom>.sav.state` | CPU, MMU, PPU, Timer, APU, serial, cart (SRAM/banks/RTC) |
 
 Hotkeys: **F1** (SRAM), **F5** (save state), **F9** (load state).  
 On exit, battery SRAM is saved automatically when the cart has a battery.

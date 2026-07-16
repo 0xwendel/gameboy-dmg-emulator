@@ -379,6 +379,83 @@ std::string Cartridge::defaultSavePath() const {
     return p + ".sav";
 }
 
+void Cartridge::serialize(std::vector<uint8_t>& out) const {
+    const uint32_t ramSize = static_cast<uint32_t>(m_ram.size());
+    out.push_back(static_cast<uint8_t>(ramSize & 0xFF));
+    out.push_back(static_cast<uint8_t>((ramSize >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>((ramSize >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((ramSize >> 24) & 0xFF));
+    if (ramSize > 0) {
+        out.insert(out.end(), m_ram.begin(), m_ram.end());
+    }
+    out.push_back(m_ramEnabled ? 1 : 0);
+    out.push_back(m_romBankLower);
+    out.push_back(m_romBankUpper);
+    out.push_back(m_bankingMode);
+    out.push_back(m_romBank);
+    out.push_back(m_ramBank);
+    out.push_back(static_cast<uint8_t>(m_romBank5 & 0xFF));
+    out.push_back(static_cast<uint8_t>((m_romBank5 >> 8) & 0xFF));
+    out.push_back(m_ramBank5);
+    out.push_back(m_rtc.s);
+    out.push_back(m_rtc.m);
+    out.push_back(m_rtc.h);
+    out.push_back(m_rtc.dl);
+    out.push_back(m_rtc.dh);
+    out.push_back(m_rtcLatched.s);
+    out.push_back(m_rtcLatched.m);
+    out.push_back(m_rtcLatched.h);
+    out.push_back(m_rtcLatched.dl);
+    out.push_back(m_rtcLatched.dh);
+    out.push_back(m_rtcLatchData);
+    out.push_back(m_rtcLatchedReady ? 1 : 0);
+    const uint64_t ts = static_cast<uint64_t>(m_rtcLastSync);
+    for (int i = 0; i < 8; ++i) {
+        out.push_back(static_cast<uint8_t>((ts >> (i * 8)) & 0xFF));
+    }
+}
+
+bool Cartridge::deserialize(const uint8_t*& ptr, const uint8_t* end) {
+    if (end - ptr < 4) return false;
+    const uint32_t ramSize = static_cast<uint32_t>(
+        ptr[0] | (ptr[1] << 8) | (ptr[2] << 16) | (ptr[3] << 24));
+    ptr += 4;
+    if (ramSize != m_ram.size()) return false;
+    if (static_cast<size_t>(end - ptr) < ramSize + 25) return false;
+    if (ramSize > 0) {
+        std::memcpy(m_ram.data(), ptr, ramSize);
+        ptr += ramSize;
+    }
+    m_ramEnabled = (*ptr++ != 0);
+    m_romBankLower = *ptr++;
+    m_romBankUpper = *ptr++;
+    m_bankingMode = *ptr++;
+    m_romBank = *ptr++;
+    m_ramBank = *ptr++;
+    m_romBank5 = static_cast<uint16_t>(ptr[0] | (ptr[1] << 8));
+    ptr += 2;
+    m_ramBank5 = *ptr++;
+    m_rtc.s = *ptr++;
+    m_rtc.m = *ptr++;
+    m_rtc.h = *ptr++;
+    m_rtc.dl = *ptr++;
+    m_rtc.dh = *ptr++;
+    m_rtcLatched.s = *ptr++;
+    m_rtcLatched.m = *ptr++;
+    m_rtcLatched.h = *ptr++;
+    m_rtcLatched.dl = *ptr++;
+    m_rtcLatched.dh = *ptr++;
+    m_rtcLatchData = *ptr++;
+    m_rtcLatchedReady = (*ptr++ != 0);
+    uint64_t ts = 0;
+    for (int i = 0; i < 8; ++i) {
+        ts |= static_cast<uint64_t>(ptr[i]) << (i * 8);
+    }
+    ptr += 8;
+    m_rtcLastSync = static_cast<std::time_t>(ts);
+    return true;
+}
+
 bool Cartridge::saveBattery(const std::string& path) const {
     if (!m_hasBattery) return false;
     if (m_ram.empty() && !m_hasRtc) return false;
