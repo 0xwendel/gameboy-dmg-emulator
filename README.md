@@ -208,7 +208,8 @@ With no ROM argument, the binary may try a dev fallback under `roms/…` (if pre
 |-----|--------|
 | P | Pause / resume |
 | R | Reset (+ battery reload) |
-| M | Mute |
+| M | Mute / Unmute |
+| - / + | Volume − / + |
 | 1 / 2 | Speed − / + |
 | [ / ] | Previous / next palette |
 | ; / ' | Previous / next shader |

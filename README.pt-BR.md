@@ -208,7 +208,8 @@ Sem ROM, pode tentar fallback em `roms/…` (se existir). Com `--test`, roda a s
 |-------|------|
 | P | Pause / resume |
 | R | Reset (+ reload da bateria) |
-| M | Mute |
+| M | Mudar mudo (Mute) |
+| - / + | Volume − / + |
 | 1 / 2 | Velocidade − / + |
 | [ / ] | Paleta anterior / próxima |
 | ; / ' | Shader anterior / próximo |

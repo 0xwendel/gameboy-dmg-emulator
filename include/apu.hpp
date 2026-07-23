@@ -21,6 +21,7 @@ public:
     void setEnabled(bool enabled) { m_outputEnabled = enabled; }
     bool enabled() const { return m_outputEnabled; }
     void setVolume(float volume);
+    float volume() const { return m_volume; }
 
     bool powerOn() const { return (m_nr52 & 0x80) != 0; }
 

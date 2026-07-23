@@ -58,6 +58,9 @@ public:
     bool muted() const { return m_muted; }
     void setMuted(bool m);
 
+    float volume() const { return m_apu.volume(); }
+    void setVolume(float v) { m_apu.setVolume(v); }
+
 private:
     void advancePeripherals(uint8_t mCycles);
     void applyPostBootIO();

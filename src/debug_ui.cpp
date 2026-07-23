@@ -204,6 +204,10 @@ void panelHome(Emulator& emu, DebugUiState& state, float hostFps, float gameW, f
         emu.setMuted(!emu.muted());
     }
     ImGui::Spacing();
+    float vol = emu.volume();
+    if (ImGui::SliderFloat("Volume", &vol, 0.0f, 1.0f, "%.0f%%")) {
+        emu.setVolume(vol);
+    }
     float speed = emu.speed();
     if (ImGui::SliderFloat("Speed", &speed, 0.25f, 4.0f, "%.2fx")) emu.setSpeed(speed);
     if (ImGui::Button("0.5x")) emu.setSpeed(0.5f);
@@ -347,6 +351,21 @@ void panelAudio(Emulator& emu) {
     ImGui::Spacing();
     KvRow("NR52", "%02X", nr52);
     KvRow("Rate", "%d Hz", APU::kSampleRate);
+    EndCard();
+
+    BeginCard("apu_volume");
+    CardTitle("Volume Control");
+    float vol = emu.volume();
+    if (ImGui::SliderFloat("Master Volume", &vol, 0.0f, 1.0f, "%.0f%%")) {
+        emu.setVolume(vol);
+    }
+    if (ImGui::Button("0% (Mute)")) emu.setVolume(0.0f);
+    ImGui::SameLine();
+    if (ImGui::Button("25%")) emu.setVolume(0.25f);
+    ImGui::SameLine();
+    if (ImGui::Button("50%")) emu.setVolume(0.50f);
+    ImGui::SameLine();
+    if (ImGui::Button("100%")) emu.setVolume(1.00f);
     EndCard();
 
     BeginCard("apu_ch");

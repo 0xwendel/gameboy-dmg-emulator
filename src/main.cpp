@@ -530,7 +530,8 @@ static void printUsage(const char* argv0) {
         << "\nEmulator:\n"
         << "  P               Pause\n"
         << "  R               Reset\n"
-        << "  M               Mute\n"
+        << "  M               Mute / Unmute\n"
+        << "  - / +           Volume -/+\n"
         << "  1/2             Speed -/+\n"
         << "  [ / ]           Previous/next palette\n"
         << "  ; / '           Previous/next shader\n"
@@ -705,6 +706,20 @@ int main(int argc, char** argv) {
             if (IsKeyPressed(KEY_M)) {
                 emu.setMuted(!emu.muted());
                 DebugUi_SetStatus(uiState, emu.muted() ? "Muted" : "Unmuted");
+            }
+            if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT)) {
+                float newVol = std::max(0.0f, emu.volume() - 0.10f);
+                emu.setVolume(newVol);
+                char msg[64];
+                std::snprintf(msg, sizeof(msg), "Volume: %.0f%%", newVol * 100.0f);
+                DebugUi_SetStatus(uiState, msg);
+            }
+            if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD)) {
+                float newVol = std::min(1.0f, emu.volume() + 0.10f);
+                emu.setVolume(newVol);
+                char msg[64];
+                std::snprintf(msg, sizeof(msg), "Volume: %.0f%%", newVol * 100.0f);
+                DebugUi_SetStatus(uiState, msg);
             }
             if (IsKeyPressed(KEY_ONE)) emu.setSpeed(emu.speed() * 0.5f);
             if (IsKeyPressed(KEY_TWO)) emu.setSpeed(emu.speed() * 2.0f);
